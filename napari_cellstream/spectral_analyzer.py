@@ -156,9 +156,9 @@ class SpectralWidget(QWidget):
         self.load_button.clicked.connect(self.open_file_dialog)
 
         # Save plots button
-        self.save_plot_button = QPushButton("Save Plot")
-        self.save_plot_button.clicked.connect(self.save_figure)
-        self.plot_container.layout().addWidget(self.save_plot_button)
+        self.save_plot_button = QPushButton("Save Timeseries")
+        self.save_plot_button.clicked.connect(self.save_timeseries)
+        self.plot_container.layout().addWidget(self.save_plot_button, 0, Qt.AlignTop)
         
         # Left column: Controls
         left_panel = QWidget()
@@ -304,21 +304,39 @@ class SpectralWidget(QWidget):
         self.viewer.add_image(image, name=iname[-1])
         return
     
-    def save_figure(self):
-        if self.canvas is None:
-            logger.warning("No plot to save.")
+    def save_timeseries(self):
+        if self.last_layer is None or self.last_x is None or self.last_y is None:
+            logger.warning("No pixel selected to save.")
             return
-    
+            
+        data = self.last_layer.data
+        if data.ndim == 3:
+            data = data[:, np.newaxis, ...]  # Add channel dimension
+        T, C, X, Y = data.shape
+        
+        # Get time series data for all channels
+        ts_data = []
+        for c in range(C):
+            ts = data[:, c, self.last_x, self.last_y].astype(np.float64)
+            ts_data.append(ts)
+            
+        ts_array = np.column_stack(ts_data)
+        
+        default_name = f"pixel_{self.last_x}_{self.last_y}.csv"
         file_path, _ = QFileDialog.getSaveFileName(
                 self, 
-                "Save Figure", 
-                "spectral_plot.svg",  # Default filename with .svg
-                "SVG Files (*.svg);;PNG Files (*.png);;PDF Files (*.pdf);;All Files (*)"
+                "Save Timeseries", 
+                default_name,
+                "CSV Files (*.csv);;Numpy Files (*.npy);;All Files (*)"
             )
-    
+            
         if file_path:
-            self.canvas.figure.savefig(file_path, bbox_inches='tight', dpi=300)
-            logger.info(f"Figure saved to: {file_path}")
+            if file_path.endswith('.npy'):
+                np.save(file_path, ts_array)
+            else:
+                header = ",".join([f"Channel_{c}" for c in range(C)])
+                np.savetxt(file_path, ts_array, delimiter=",", header=header, comments="")
+            logger.info(f"Timeseries saved to: {file_path}")
     
     ###FFT widget components
     def handle_fft_result(self, result):
