@@ -8,16 +8,17 @@ from cellstream.image import downsample
 import torch
 
 
-#fft_features_to_process=['full_amplitude', 'normalized_amplitude', 'z_score', 'phase']
+from napari.qt.threading import thread_worker
+
 @magicgui(
     call_button="Generate FFT features",
-    blocks={"min": 1, "max": 100000}
+    blocks={"tooltip": "Enter 'auto' or a number of blocks"}
    )
 def fft_gui_widget(
     normalize_histogram=True,
     max_bin=128,
     use_gpu: bool = False,
-    blocks: int = 1,
+    blocks: str = '1',
     downsample_by: float=1,
 
     return_amplitude: bool = True,
@@ -62,9 +63,6 @@ def fft_gui_widget(
         
     image_data = layer.data
     
-    num_pixels=image_data.size
-    batch_size=int(num_pixels/blocks)
-    
     if isinstance(image_data, np.ndarray):
         image_data = torch.from_numpy(image_data.astype('float32'))
     
@@ -72,13 +70,82 @@ def fft_gui_widget(
         print(f"Downsampling image by {downsample_by}...")
         image_data=downsample(image_data,downsample_by)
         
-    feature_dict = generate_fft_features(
-        image_data,
-        normalize_histogram=normalize_histogram,
-        max_bin=max_bin,
-        batch_size=batch_size,
-        fft_features_to_process=fft_features_to_process,
-        device=device
-    )
-    
-    return feature_dict
+    blocks_val = 'auto' if str(blocks).strip(" '\"").lower() == 'auto' else int(str(blocks).strip(" '\""))
+
+    if blocks_val != 'auto':
+        num_pixels=image_data.shape[-2] * image_data.shape[-1]
+        batch_size=int(num_pixels/blocks_val)
+    else:
+        batch_size = 'auto'
+
+    from napari.utils import progress
+    from qtpy.QtCore import QObject, Signal
+    pbar = progress(total=0)
+
+    class ProgressEmitter(QObject):
+        total_signal = Signal(int)
+        update_signal = Signal(int)
+        
+    emitter = ProgressEmitter()
+
+    class MockTqdm:
+        def __init__(self, iterable=None, total=None, **kwargs):
+            if iterable is not None:
+                try:
+                    self.total = len(iterable)
+                except TypeError:
+                    self.total = 0
+                self.iterable = iterable
+            else:
+                self.total = total or 0
+                self.iterable = None
+            
+            self.n = 0
+            emitter.total_signal.emit(self.total)
+            
+        def update(self, n=1):
+            emitter.update_signal.emit(n)
+            
+        def __iter__(self):
+            if self.iterable is not None:
+                for x in self.iterable:
+                    yield x
+                    self.update(1)
+        
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.close()
+
+    @thread_worker
+    def _fft_worker():
+        import cellstream.fft.utils as fft_utils
+        original_tqdm = getattr(fft_utils, 'tqdm', None)
+        fft_utils.tqdm = MockTqdm
+        try:
+            feature_dict = generate_fft_features(
+                image_data,
+                normalize_histogram=normalize_histogram,
+                max_bin=max_bin,
+                batch_size=batch_size,
+                fft_features_to_process=fft_features_to_process,
+                device=device
+            )
+            return feature_dict
+        finally:
+            if original_tqdm is not None:
+                fft_utils.tqdm = original_tqdm
+
+    worker = _fft_worker()
+
+    def set_total(val):
+        pbar.total = val
+
+    emitter.total_signal.connect(set_total)
+    emitter.update_signal.connect(pbar.update)
+    worker.finished.connect(pbar.close)
+    return worker

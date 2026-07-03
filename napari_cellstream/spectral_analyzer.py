@@ -338,8 +338,44 @@ class SpectralWidget(QWidget):
                 np.savetxt(file_path, ts_array, delimiter=",", header=header, comments="")
             logger.info(f"Timeseries saved to: {file_path}")
     
+    def _show_activity_dock(self):
+        restore_funcs = []
+        try:
+            # Modern napari (>=0.4.16)
+            if hasattr(self.viewer.window, '_qt_viewer') and hasattr(self.viewer.window._qt_viewer, 'dockActivity'):
+                dock = self.viewer.window._qt_viewer.dockActivity
+                if not dock.isVisible():
+                    dock.show()
+                    restore_funcs.append(lambda: dock.setVisible(False))
+            # Older napari
+            elif hasattr(self.viewer.window, '_qt_window') and hasattr(self.viewer.window._qt_window, '_activity_dialog'):
+                dialog = self.viewer.window._qt_window._activity_dialog
+                if not dialog.isVisible():
+                    dialog.setVisible(True)
+                    restore_funcs.append(lambda: dialog.setVisible(False))
+        except Exception as e:
+            logger.debug(f"Could not show activity dock: {e}")
+
+        def restore():
+            for f in restore_funcs:
+                try:
+                    f()
+                except Exception:
+                    pass
+        return restore
+
     ###FFT widget components
     def handle_fft_result(self, result):
+        if hasattr(result, 'returned') and hasattr(result, 'start'):
+            # It's a thread worker
+            restore_func = self._show_activity_dock()
+            result.returned.connect(self._process_fft_result)
+            result.finished.connect(restore_func)
+            result.start()
+        else:
+            self._process_fft_result(result)
+
+    def _process_fft_result(self, result):
         if not isinstance(result, dict):
             logger.error("FFT did not return a valid result")
             return
@@ -370,7 +406,16 @@ class SpectralWidget(QWidget):
         self.cwt_gui.wavelet_choice.value=wavelet_choice
         self.cwt_gui.wavelet_parameters.value=wavelet_params
 
-    def handle_cwt_result(self,results):
+    def handle_cwt_result(self, results):
+        if hasattr(results, 'returned') and hasattr(results, 'start'):
+            restore_func = self._show_activity_dock()
+            results.returned.connect(self._process_cwt_result)
+            results.finished.connect(restore_func)
+            results.start()
+        else:
+            self._process_cwt_result(results)
+
+    def _process_cwt_result(self, results):
         # Add to results tree
         self.cwt_count += 1
         wavelet_name = self.cwt_gui.wavelet_choice.value
