@@ -56,6 +56,8 @@ def generate_cwt_features_widget(
     # Convert numpy to torch tensor
     img_tensor = torch.from_numpy(img.astype('float32'))
 
+    generate_cwt_features_widget._abort_flag = False
+
     #prepare channel_outputs parameter
     channel_outputs=dict()
     for c in range(C):
@@ -104,6 +106,8 @@ def generate_cwt_features_widget(
             emitter.total_signal.emit(self.total)
             
         def update(self, n=1):
+            if getattr(generate_cwt_features_widget, '_abort_flag', False):
+                raise RuntimeError("Job cancelled by user.")
             emitter.update_signal.emit(n)
             
         def __iter__(self):
@@ -149,13 +153,49 @@ def generate_cwt_features_widget(
         finally:
             if original_tqdm is not None:
                 cwt_utils.tqdm = original_tqdm
+            if getattr(generate_cwt_features_widget, '_abort_flag', False):
+                if use_gpu:
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
 
     worker = _cwt_worker()
 
     def set_total(val):
         pbar.total = val
+        pbar.set_description("Processing blocks")
 
+    def do_cancel():
+        generate_cwt_features_widget._abort_flag = True
+        cancel_cwt_button.text = "Cancelling..."
+        cancel_cwt_button.enabled = False
+        worker.quit()
+
+    # Show and connect the cancel button
+    cancel_cwt_button.text = "Cancel Job"
+    cancel_cwt_button.enabled = True
+    cancel_cwt_button.show()
+    # connect the button (we use lambda to avoid unhashable issue if we need to disconnect later, or just store the connection)
+    cancel_cwt_button.changed.connect(do_cancel)
+
+    def cleanup():
+        pbar.close()
+        cancel_cwt_button.hide()
+        try:
+            cancel_cwt_button.changed.disconnect(do_cancel)
+        except Exception:
+            pass
+
+    pbar.set_description("Pre-allocating arrays...")
     emitter.total_signal.connect(set_total)
     emitter.update_signal.connect(pbar.update)
-    worker.finished.connect(pbar.close)
+    worker.finished.connect(cleanup)
     return worker
+
+from magicgui.widgets import PushButton
+cancel_cwt_button = PushButton(text="Cancel Job")
+cancel_cwt_button.hide()
+generate_cwt_features_widget.append(cancel_cwt_button)

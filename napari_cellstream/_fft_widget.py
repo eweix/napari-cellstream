@@ -57,7 +57,7 @@ def fft_gui_widget(
     else:
         device = torch.device("cpu")
         
-        
+    fft_gui_widget._abort_flag = False
 
     print(f"Performing blocked FFT processing using device: {device}")
         
@@ -104,6 +104,8 @@ def fft_gui_widget(
             emitter.total_signal.emit(self.total)
             
         def update(self, n=1):
+            if getattr(fft_gui_widget, '_abort_flag', False):
+                raise RuntimeError("Job cancelled by user.")
             emitter.update_signal.emit(n)
             
         def __iter__(self):
@@ -139,13 +141,47 @@ def fft_gui_widget(
         finally:
             if original_tqdm is not None:
                 fft_utils.tqdm = original_tqdm
+            if getattr(fft_gui_widget, '_abort_flag', False):
+                if use_gpu:
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
 
     worker = _fft_worker()
 
     def set_total(val):
         pbar.total = val
+        pbar.set_description("Processing batches")
 
+    def do_cancel():
+        fft_gui_widget._abort_flag = True
+        cancel_fft_button.text = "Cancelling..."
+        cancel_fft_button.enabled = False
+        worker.quit()
+
+    cancel_fft_button.text = "Cancel Job"
+    cancel_fft_button.enabled = True
+    cancel_fft_button.show()
+    cancel_fft_button.changed.connect(do_cancel)
+
+    def cleanup():
+        pbar.close()
+        cancel_fft_button.hide()
+        try:
+            cancel_fft_button.changed.disconnect(do_cancel)
+        except Exception:
+            pass
+
+    pbar.set_description("Pre-allocating arrays...")
     emitter.total_signal.connect(set_total)
     emitter.update_signal.connect(pbar.update)
-    worker.finished.connect(pbar.close)
+    worker.finished.connect(cleanup)
     return worker
+
+from magicgui.widgets import PushButton
+cancel_fft_button = PushButton(text="Cancel Job")
+cancel_fft_button.hide()
+fft_gui_widget.append(cancel_fft_button)
