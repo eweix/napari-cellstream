@@ -258,14 +258,21 @@ class SpectralWidget(QWidget):
         
         self.image_tools_stack = QStackedWidget()
         
-        self.image_tools_stack.addWidget(downsample_gui_widget.native)
-        self.image_tools_stack.addWidget(false_color_widget.native)
-        self.image_tools_stack.addWidget(hilbert_transform_widget.native)
-        self.image_tools_stack.addWidget(fir_filter_widget.native)
-        self.image_tools_stack.addWidget(phase_defects_widget.native)
-        self.image_tools_stack.addWidget(image_registration_widget.native)
-        self.image_tools_stack.addWidget(pixel_profile_widget.native)
-        self.image_tools_stack.addWidget(landscape_generation_widget.native)
+        for w in [
+            downsample_gui_widget.native,
+            false_color_widget.native,
+            hilbert_transform_widget.native,
+            fir_filter_widget.native,
+            phase_defects_widget.native,
+            image_registration_widget.native,
+            pixel_profile_widget.native,
+            landscape_generation_widget.native
+        ]:
+            container = QWidget()
+            lay = QVBoxLayout(container)
+            lay.setAlignment(Qt.AlignTop)
+            lay.addWidget(w)
+            self.image_tools_stack.addWidget(container)
         
         self.image_tools_combo.currentIndexChanged.connect(self.image_tools_stack.setCurrentIndex)
         
