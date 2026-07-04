@@ -28,8 +28,18 @@ from ssqueezepy import cwt
 
 from ._fft_widget import fft_gui_widget
 from ._cwt_widget import generate_cwt_features_widget
-from ._falsecolor_spectrum import false_color_widget
-from ._downsample_widget import downsample_gui_widget
+from ._image_tools_widgets import (
+    downsample_gui_widget,
+    false_color_widget,
+    hilbert_transform_widget,
+    fir_filter_widget,
+    phase_defects_widget,
+    image_registration_widget,
+    pixel_profile_widget,
+    landscape_generation_widget
+)
+
+from qtpy.QtWidgets import QStackedWidget
 
 import logging
 
@@ -122,6 +132,9 @@ class SpectralWidget(QWidget):
         
         #fft widget 
         self.fft_gui = fft_gui_widget
+        self.fft_gui.use_gpu.value = self.use_gpu
+        if not self.use_gpu:
+            self.fft_gui.use_gpu.enabled = False
         self.fft_gui.called.connect(self.handle_fft_result)
         
         fft_group = QGroupBox("     Generate FFT features")
@@ -136,7 +149,9 @@ class SpectralWidget(QWidget):
 
         #cwt widget 
         self.cwt_gui = generate_cwt_features_widget
-        self.cwt_gui.use_gpu.value=self.use_gpu
+        self.cwt_gui.use_gpu.value = self.use_gpu
+        if not self.use_gpu:
+            self.cwt_gui.use_gpu.enabled = False
 
         #self.cwt_gui.wavelet_tuple=self.get_wavelet_tuple() ##fix this later
         self.cwt_gui.called.connect(self.handle_cwt_result)
@@ -225,26 +240,66 @@ class SpectralWidget(QWidget):
         bottom_panel = QWidget()
         bottom_layout = QHBoxLayout()
         
-        #False color widget
-        false_color_group = QGroupBox("  False-color")
-        self.false_color_gui = false_color_widget
-        self.false_color_gui.called.connect(self.handle_false_color_result)
-        false_color_layout = QVBoxLayout()
-        false_color_layout.addWidget(self.false_color_gui.native)
-        false_color_group.setLayout(false_color_layout)
+        # Image Tools Widget
+        image_tools_group = QGroupBox("  Image Tools Toolbox")
+        image_tools_layout = QVBoxLayout()
         
-        #Downsample widget
-        downsample_group = QGroupBox("  Downsample")
-        self.downsample_gui = downsample_gui_widget
-        self.downsample_gui.called.connect(self.handle_downsample_result)
-        downsample_layout = QVBoxLayout()
-        downsample_layout.addWidget(self.downsample_gui.native)
-        downsample_group.setLayout(downsample_layout)
+        self.image_tools_combo = QComboBox()
+        self.image_tools_combo.addItems([
+            "Downsample Image", 
+            "False-Color Spectra", 
+            "Hilbert Transform",
+            "FIR Filter",
+            "Phase Defects",
+            "Image Registration",
+            "Pixel Profile Spectra",
+            "Generate 2D Landscape"
+        ])
+        
+        self.image_tools_stack = QStackedWidget()
+        
+        self.image_tools_stack.addWidget(downsample_gui_widget.native)
+        self.image_tools_stack.addWidget(false_color_widget.native)
+        self.image_tools_stack.addWidget(hilbert_transform_widget.native)
+        self.image_tools_stack.addWidget(fir_filter_widget.native)
+        self.image_tools_stack.addWidget(phase_defects_widget.native)
+        self.image_tools_stack.addWidget(image_registration_widget.native)
+        self.image_tools_stack.addWidget(pixel_profile_widget.native)
+        self.image_tools_stack.addWidget(landscape_generation_widget.native)
+        
+        self.image_tools_combo.currentIndexChanged.connect(self.image_tools_stack.setCurrentIndex)
+        
+        def _dispatch_tool_result(result, tool_name):
+            if hasattr(result, 'returned') and hasattr(result, 'start'):
+                # It's a thread worker, connect it and start it
+                restore_func = self._show_activity_dock()
+                result.returned.connect(lambda r: self.handle_image_tool_result(r, tool_name))
+                result.finished.connect(restore_func)
+                result.start()
+            else:
+                self.handle_image_tool_result(result, tool_name)
+                
+        downsample_gui_widget.called.connect(lambda r: _dispatch_tool_result(r, "Downsampled"))
+        false_color_widget.called.connect(lambda r: _dispatch_tool_result(r, "False Colored"))
+        hilbert_transform_widget.called.connect(lambda r: _dispatch_tool_result(r, "Hilbert Transform"))
+        fir_filter_widget.called.connect(lambda r: _dispatch_tool_result(r, "FIR Filter"))
+        phase_defects_widget.called.connect(lambda r: _dispatch_tool_result(r, "Phase Defects"))
+        image_registration_widget.called.connect(lambda r: _dispatch_tool_result(r, "Registered Image"))
+        pixel_profile_widget.called.connect(lambda r: _dispatch_tool_result(r, "Pixel Profile Spectra"))
+        landscape_generation_widget.called.connect(lambda r: _dispatch_tool_result(r, "Generated Landscape"))
+
+        # Wrap the stack in a QScrollArea so large widgets don't break the layout
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(self.image_tools_stack)
+        
+        image_tools_layout.addWidget(self.image_tools_combo)
+        image_tools_layout.addWidget(scroll_area)
+        image_tools_group.setLayout(image_tools_layout)
 
         #Add widgets to bottom panel
         bottom_layout.addWidget(self.results_panel, 2)
-        bottom_layout.addWidget(false_color_group, 1)
-        bottom_layout.addWidget(downsample_group, 1)
+        bottom_layout.addWidget(image_tools_group, 2)
         bottom_panel.setLayout(bottom_layout)
         bottom_panel.setMinimumWidth(100)
 
@@ -455,30 +510,113 @@ class SpectralWidget(QWidget):
                 metadata={"source": "cwt", "feature": feature}
             )
 
-    ### False-color widget components
-    def handle_false_color_result(self, result):
-       
-        #add downsampled
-        self.viewer.add_image(
-            result,  
-            name="False colored",
-            scale=[20,1,1],
-            metadata={"source": "cellstream.color_by_axis"}
-        )
-        return
+    ### Image Tools unified handler
+    def handle_image_tool_result(self, result, tool_name):
+        import pandas as pd
+        
+        # Check if the tool is the landscape generator acting on a DataFrame
+        if isinstance(result, dict) and result.get('action') == 'generate_landscape':
+            current_item = self.results_tree.currentItem()
+            if current_item is None:
+                from qtpy.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "No Selection", "Please select a Pixel Profile DataFrame in the Results tree first.")
+                return
+            
+            df = self.results_dict.get(id(current_item))
+            if not isinstance(df, pd.DataFrame):
+                from qtpy.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Invalid Selection", "Selected item is not a Pixel Profile DataFrame.")
+                return
+            
+            plot_config = result
+            
+            # Now compute and plot it!
+            from cellstream.pixels.utils import compute_2d_landscape, plot_2d_landscape
+            import matplotlib.pyplot as plt
+            try:
+                x_col = plot_config['x_col']
+                y_col = plot_config['y_col']
+                z_col = plot_config['z_col']
+                
+                stats = compute_2d_landscape(
+                    df, 
+                    x_col=x_col, 
+                    y_col=y_col, 
+                    z_col=z_col,
+                    bins=plot_config.get('bins', 100),
+                    min_count=plot_config.get('min_count', 10),
+                    percentiles=plot_config.get('percentiles', (1.0, 99.0))
+                )
+                
+                # Add stats to results tree so it can be saved
+                root = self.results_tree.invisibleRootItem()
+                stats_item = QTreeWidgetItem([f"Landscape Stats ({z_col})", f"Dict (shape: {stats['mean'].shape})"])
+                root.addChild(stats_item)
+                self.results_dict[id(stats_item)] = stats
+                stats_item.setExpanded(True)
+                self.results_tree.setCurrentItem(stats_item)
+                
+                plot_2d_landscape(
+                    stats, 
+                    title=f"Landscape: {z_col} over {x_col} vs {y_col}",
+                    x_label=x_col,
+                    y_label=y_col,
+                    colorbar_label=z_col,
+                    cmap=plot_config.get('cmap', 'viridis')
+                )
+                plt.show()
+            except Exception as e:
+                logger.error(f"Failed to plot 2D landscape: {e}")
+            return
 
-    def handle_downsample_result(self, result):
-        #remove original
-        active_layer = self.viewer.layers.selection.active
-        if active_layer is not None:
-            self.viewer.layers.remove(active_layer)
-
-        self.viewer.add_image(
-            result,  
-            name="False colored",
-            scale=[20,1,1],
-            metadata={"source": "cellstream.color_by_axis"}
-        )
+        if isinstance(result, pd.DataFrame):
+            desc = f"DataFrame {result.shape}"
+            logger.info(f"{tool_name} returned a DataFrame with {result.shape[0]} rows.")
+            
+            root = self.results_tree.invisibleRootItem()
+            tool_item = QTreeWidgetItem([tool_name, desc])
+            root.addChild(tool_item)
+            self.results_dict[id(tool_item)] = result
+            
+        elif isinstance(result, dict):
+            desc = f"Dict ({len(result)} channels)"
+            root = self.results_tree.invisibleRootItem()
+            tool_item = QTreeWidgetItem([tool_name, desc])
+            root.addChild(tool_item)
+            self.results_dict[id(tool_item)] = result
+            
+            for key, array in result.items():
+                if isinstance(array, torch.Tensor):
+                    array = array.cpu().numpy()
+                elif hasattr(array, 'numpy'):
+                    array = array.numpy()
+                
+                # add to viewer
+                self.viewer.add_image(
+                    array,
+                    name=f"{tool_name} [{key}]",
+                    metadata={"source": tool_name, "channel": key}
+                )
+                
+                child_item = QTreeWidgetItem([str(key), f"Array {array.shape}"])
+                tool_item.addChild(child_item)
+                self.results_dict[id(child_item)] = array
+                
+        else:
+            desc = f"Array {result.shape}"
+            self.viewer.add_image(
+                result,  
+                name=f"{tool_name} Result",
+                metadata={"source": tool_name}
+            )
+            root = self.results_tree.invisibleRootItem()
+            tool_item = QTreeWidgetItem([tool_name, desc])
+            root.addChild(tool_item)
+            self.results_dict[id(tool_item)] = result
+        
+        # Expand and select
+        tool_item.setExpanded(True)
+        self.results_tree.setCurrentItem(tool_item)
 
     ###pixel inspector components
     def create_controls(self):
@@ -1037,7 +1175,51 @@ class SpectralWidget(QWidget):
             QMessageBox.warning(self, "No Data", "Could not find the data associated with the selected item.")
             return
 
-        # Suggest filename based on root item name
+        import pandas as pd
+        if isinstance(data, pd.DataFrame):
+            # Save DataFrames as Parquet instead of Zarr
+            suggested_name = root_item.text(0).replace(" ", "_").replace("=", "-").replace(",", "") + ".parquet"
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save DataFrame",
+                suggested_name,
+                "Parquet Files (*.parquet);;All Files (*)"
+            )
+            if not file_path:
+                return
+            try:
+                data.to_parquet(file_path, index=False)
+                from qtpy.QtWidgets import QMessageBox
+                QMessageBox.information(self, "Save Successful", f"Successfully saved DataFrame as Parquet to:\n{file_path}")
+            except Exception as e:
+                logger.error(f"Error writing DataFrame to Parquet: {e}")
+                from qtpy.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "Save Failed", f"Failed to save Parquet:\n{str(e)}")
+            return
+            
+        if isinstance(data, dict) and 'edges' in data and 'mean' in data:
+            # It's a landscape stats dict
+            suggested_name = root_item.text(0).replace(" ", "_").replace("=", "-").replace(",", "") + ".pbz2"
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Landscape Stats",
+                suggested_name,
+                "Compressed Pickle (*.pbz2);;All Files (*)"
+            )
+            if not file_path:
+                return
+            try:
+                from cellstream.pixels.utils import save_landscape
+                save_landscape(data, file_path)
+                from qtpy.QtWidgets import QMessageBox
+                QMessageBox.information(self, "Save Successful", f"Successfully saved Landscape Stats to:\n{file_path}")
+            except Exception as e:
+                logger.error(f"Error saving landscape stats: {e}")
+                from qtpy.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "Save Failed", f"Failed to save Landscape Stats:\n{str(e)}")
+            return
+
+        # Suggest filename based on root item name for normal arrays
         suggested_name = root_item.text(0).replace(" ", "_").replace("=", "-").replace(",", "") + ".zarr"
         file_path, _ = QFileDialog.getSaveFileName(
             self,

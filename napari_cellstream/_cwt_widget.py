@@ -22,7 +22,7 @@ def generate_cwt_features_widget(
     max_scale: int = 180,
     num_filter_banks: int = 1,
     carrier_channel: int = 0,
-    blocks: str = '50',
+    blocks: str = 'auto',
     normalize_amplitudes: bool = False,
     use_gpu: bool = False,
     bank_method: str = 'max_pool',

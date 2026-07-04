@@ -18,7 +18,7 @@ def fft_gui_widget(
     normalize_histogram=True,
     max_bin=128,
     use_gpu: bool = False,
-    blocks: str = '1',
+    blocks: str = 'auto',
     downsample_by: float=1,
 
     return_amplitude: bool = True,
