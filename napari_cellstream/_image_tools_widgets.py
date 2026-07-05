@@ -9,7 +9,7 @@ from napari.qt.threading import thread_worker
 
 from cellstream.image import downsample
 from cellstream.hilbert import hilbert_transform
-from cellstream.filters import create_ir_filter, apply_fir_filter
+from cellstream.filters import create_ir_filter, apply_fir_filter, create_bandpass_filter
 from cellstream.viz import color_by_axis
 
 from napari.utils import progress
@@ -211,10 +211,16 @@ def hilbert_transform_widget(
     return worker
 
 # 4. FIR Filter Tool
-@magicgui(call_button="Apply FIR Filter")
+@magicgui(
+    call_button="Apply FIR Filter",
+    filter_type={"choices": ["low_pass", "high_pass", "bandpass"]},
+    cutoff_freq_low={"label": "Low Cutoff (Frac. Nyquist)"},
+    cutoff_freq_high={"label": "High Cutoff (Frac. Nyquist)"}
+)
 def fir_filter_widget(
-    cutoff_freq: float = 0.1,
-    high_pass: bool = False,
+    filter_type: str = "low_pass",
+    cutoff_freq_low: float = 0.05,
+    cutoff_freq_high: float = 0.15,
     window_size: int = 101,
     batch_size: str = 'auto',
 ):
@@ -233,7 +239,13 @@ def fir_filter_widget(
         original_tqdm = getattr(flt_module, 'tqdm', None)
         flt_module.tqdm = MockTqdm
         try:
-            ir = create_ir_filter(cutoff_freq, high_pass=high_pass, window_size=window_size)
+            if filter_type == 'bandpass':
+                ir = create_bandpass_filter(low_cutoff=cutoff_freq_low, high_cutoff=cutoff_freq_high, window_size=window_size)
+            elif filter_type == 'high_pass':
+                ir = create_ir_filter(cutoff_freq=cutoff_freq_low, high_pass=True, window_size=window_size)
+            else: # low_pass
+                ir = create_ir_filter(cutoff_freq=cutoff_freq_low, high_pass=False, window_size=window_size)
+                
             bz = 'auto' if str(batch_size).lower() == 'auto' else int(batch_size)
             filtered = apply_fir_filter(img, ir, batch_size=bz)
             return filtered.cpu().numpy()
@@ -246,6 +258,12 @@ def fir_filter_widget(
     worker = _filter_worker()
     _add_cancel_button(fir_filter_widget, worker, pbar)
     return worker
+
+@fir_filter_widget.filter_type.changed.connect
+def _on_filter_type_changed(value: str):
+    fir_filter_widget.cutoff_freq_high.enabled = (value == 'bandpass')
+
+fir_filter_widget.cutoff_freq_high.enabled = False
 
 # 5. Phase Defects Tool
 @magicgui(call_button="Compute Phase Defects")
@@ -410,3 +428,91 @@ def landscape_generation_widget(
         'min_count': min_count,
         'percentiles': (percentile_min, percentile_max)
     }
+
+# 9. Hann Filter Tool
+@magicgui(call_button="Apply Hann Filter")
+def hann_filter_widget(
+    norm_histogram: bool = False,
+):
+    viewer = current_viewer()
+    if viewer is None: raise RuntimeError("No active napari viewer found")
+    layer = viewer.layers.selection.active
+    if layer is None or not isinstance(layer, Image): raise RuntimeError("No active image layer selected")
+
+    img = torch.from_numpy(layer.data.astype('float32'))
+    hann_filter_widget._abort_flag = False
+    pbar, emitter, MockTqdm = _setup_progress(hann_filter_widget, "Applying Hann Filter...")
+
+    @thread_worker
+    def _hann_worker():
+        import cellstream.utils as cs_utils
+        import importlib
+        importlib.reload(cs_utils)
+        from cellstream.utils import hann_image_series
+        
+        original_tqdm = getattr(cs_utils, 'tqdm', None)
+        cs_utils.tqdm = MockTqdm
+        try:
+            res = hann_image_series(img=img, norm_histogram=norm_histogram)
+            return res.detach().cpu().numpy()
+        finally:
+            if original_tqdm is not None:
+                cs_utils.tqdm = original_tqdm
+            if getattr(hann_filter_widget, '_abort_flag', False) and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    worker = _hann_worker()
+    _add_cancel_button(hann_filter_widget, worker, pbar)
+    return worker
+
+
+# 10. Temporal Convolution Tool
+@magicgui(call_button="Convolve Timeseries")
+def temporal_convolution_widget(
+    kernel_weights: str = "1.0, -1.0",
+    batch_size: str = '512',
+):
+    viewer = current_viewer()
+    if viewer is None: raise RuntimeError("No active napari viewer found")
+    layer = viewer.layers.selection.active
+    if layer is None or not isinstance(layer, Image): raise RuntimeError("No active image layer selected")
+
+    img = torch.from_numpy(layer.data.astype('float32'))
+    temporal_convolution_widget._abort_flag = False
+    pbar, emitter, MockTqdm = _setup_progress(temporal_convolution_widget, "Convolving Timeseries...")
+
+    @thread_worker
+    def _conv_worker():
+        import cellstream.utils as cs_utils
+        import importlib
+        importlib.reload(cs_utils)
+        from cellstream.utils import convolve_along_timeseries
+        
+        original_tqdm = getattr(cs_utils, 'tqdm', None)
+        cs_utils.tqdm = MockTqdm
+        try:
+            # Parse kernel
+            try:
+                weights = [float(x.strip()) for x in kernel_weights.split(',')]
+            except ValueError:
+                raise ValueError("Kernel weights must be a comma-separated list of numbers.")
+            k_tensor = torch.tensor(weights, dtype=torch.float32)
+            
+            bz = 'auto' if str(batch_size).lower() == 'auto' else int(batch_size)
+            if bz == 'auto': bz = 512
+            
+            res = convolve_along_timeseries(
+                video_tensor=img,
+                kernel_weights=k_tensor,
+                batch_size=bz
+            )
+            return res.detach().cpu().numpy()
+        finally:
+            if original_tqdm is not None:
+                cs_utils.tqdm = original_tqdm
+            if getattr(temporal_convolution_widget, '_abort_flag', False) and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    worker = _conv_worker()
+    _add_cancel_button(temporal_convolution_widget, worker, pbar)
+    return worker

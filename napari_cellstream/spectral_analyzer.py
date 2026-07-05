@@ -36,7 +36,9 @@ from ._image_tools_widgets import (
     phase_defects_widget,
     image_registration_widget,
     pixel_profile_widget,
-    landscape_generation_widget
+    landscape_generation_widget,
+    hann_filter_widget,
+    temporal_convolution_widget
 )
 
 from qtpy.QtWidgets import QStackedWidget
@@ -66,17 +68,7 @@ WAVELET_PARAMS = {
     'hhhat': { "mu": (5,0,1000,1)
             }}
 
-class AspectRatioPixmapLabel(QLabel):
-    def __init__(self, pixmap, parent=None):
-        super().__init__(parent)
-        self.setAlignment(Qt.AlignCenter)
-        self.setMinimumSize(1, 1)
-        self._pixmap = pixmap
 
-    def resizeEvent(self, event):
-        if not self._pixmap.isNull():
-            super().resizeEvent(event)
-            self.setPixmap(self._pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
 class SpectralWidget(QWidget):
     def __init__(self, napari_viewer,use_gpu=False):
@@ -112,6 +104,7 @@ class SpectralWidget(QWidget):
         self.nv = 32
         self.do_plot_zscore = True
         self.wavelet_params = {}
+        self.show_nyquist = False
         
         # Create controls
         self.create_controls()
@@ -215,6 +208,11 @@ class SpectralWidget(QWidget):
         self.load_zarr_button.clicked.connect(self.load_result_from_zarr)
         buttons_layout.addWidget(self.load_zarr_button)
         
+        self.delete_result_button = QPushButton("Trash")
+        self.delete_result_button.setStyleSheet("color: #ff6b6b;")
+        self.delete_result_button.clicked.connect(self.delete_selected_result)
+        buttons_layout.addWidget(self.delete_result_button)
+        
         results_layout.addLayout(buttons_layout)
 
         ### Main layout using splitter ###
@@ -241,7 +239,7 @@ class SpectralWidget(QWidget):
         bottom_layout = QHBoxLayout()
         
         # Image Tools Widget
-        image_tools_group = QGroupBox("  Image Tools Toolbox")
+        image_tools_group = QGroupBox("  Image Toolbox")
         image_tools_layout = QVBoxLayout()
         
         self.image_tools_combo = QComboBox()
@@ -253,7 +251,9 @@ class SpectralWidget(QWidget):
             "Phase Defects",
             "Image Registration",
             "Pixel Profile Spectra",
-            "Generate 2D Landscape"
+            "Generate 2D Landscape",
+            "Hann Filter",
+            "Temporal Convolution"
         ])
         
         self.image_tools_stack = QStackedWidget()
@@ -266,7 +266,9 @@ class SpectralWidget(QWidget):
             phase_defects_widget.native,
             image_registration_widget.native,
             pixel_profile_widget.native,
-            landscape_generation_widget.native
+            landscape_generation_widget.native,
+            hann_filter_widget.native,
+            temporal_convolution_widget.native
         ]:
             container = QWidget()
             lay = QVBoxLayout(container)
@@ -294,6 +296,8 @@ class SpectralWidget(QWidget):
         image_registration_widget.called.connect(lambda r: _dispatch_tool_result(r, "Registered Image"))
         pixel_profile_widget.called.connect(lambda r: _dispatch_tool_result(r, "Pixel Profile Spectra"))
         landscape_generation_widget.called.connect(lambda r: _dispatch_tool_result(r, "Generated Landscape"))
+        hann_filter_widget.called.connect(lambda r: _dispatch_tool_result(r, "Hann Filter"))
+        temporal_convolution_widget.called.connect(lambda r: _dispatch_tool_result(r, "Temporal Convolution"))
 
         # Wrap the stack in a QScrollArea so large widgets don't break the layout
         scroll_area = QScrollArea()
@@ -310,22 +314,6 @@ class SpectralWidget(QWidget):
         bottom_panel.setLayout(bottom_layout)
         bottom_panel.setMinimumWidth(100)
 
-        # Header banner: splash.png scaled to a fixed height, maintaining aspect ratio
-        import os
-        from qtpy.QtGui import QPixmap
-        splash_path = os.path.join(os.path.dirname(__file__), "splash.png")
-        if os.path.exists(splash_path):
-            pixmap = QPixmap(splash_path)
-            # Pre-scale to 60px height to avoid using massive original image dynamically
-            scaled = pixmap.scaledToHeight(60, Qt.SmoothTransformation)
-            header_panel = AspectRatioPixmapLabel(scaled)
-            header_panel.setFixedHeight(60)
-        else:
-            header_panel = QLabel()
-            header_panel.setAlignment(Qt.AlignCenter)
-            header_panel.setText("cellstream: single-cell spectral analyzer")
-            header_panel.setStyleSheet("color: #00e676; font-weight: bold; font-size: 16px; padding: 8px; background: #1e1e1e;")
-        
         ### Connect top and bottom widgets
         splitter = QSplitter(Qt.Vertical)
         splitter.addWidget(top_widget)
@@ -333,7 +321,6 @@ class SpectralWidget(QWidget):
         splitter.setSizes([550, 250])  
         
         #finalize and display layout
-        main_layout.addWidget(header_panel)
         main_layout.addWidget(splitter)
         self.setLayout(main_layout)
         self.setMinimumWidth(150)
@@ -671,6 +658,12 @@ class SpectralWidget(QWidget):
         self.zscore_check.stateChanged.connect(self.zscore_changed)
         controls_layout.addWidget(self.zscore_check)
         
+        # X-axis Nyquist units checkbox
+        self.nyquist_check = QCheckBox("Show X-axis as Fraction of Nyquist")
+        self.nyquist_check.setChecked(self.show_nyquist)
+        self.nyquist_check.stateChanged.connect(self.nyquist_changed)
+        controls_layout.addWidget(self.nyquist_check)
+        
         # Spectrogram contrast controls
         contrast_group = QGroupBox("Spectrogram Contrast")
         contrast_layout_inner = QVBoxLayout()
@@ -776,6 +769,10 @@ class SpectralWidget(QWidget):
         self.do_plot_zscore = (state == 2)  # 2 is checked
         self.refresh_plots()
         self.propagate_wavelet_params_to_cwt_widget()
+        
+    def nyquist_changed(self, state):
+        self.show_nyquist = (state == 2)
+        self.refresh_plots()
     
     def contrast_mode_changed(self, mode):
         """Handle contrast mode combo box changes."""
@@ -1022,11 +1019,20 @@ class SpectralWidget(QWidget):
             
             self.fmax=min(self.fft_gui.max_bin.value, fft.shape[0]) #adjust powerspectrum
             
-            ax.plot(fft[:self.fmax],color='#FF91A4')
-            ax.set_title("Frequency Domain")
-            ax.set_xlabel("FFT bin number")
+            if getattr(self, 'show_nyquist', False):
+                x_vals = np.linspace(0, 1.0, len(fft))[:self.fmax]
+                ax.set_xlabel("Frequency (Fraction of Nyquist)")
+                cursor_idx = min(self.current_time_index, self.fmax - 1)
+                cursor_x = x_vals[cursor_idx] if cursor_idx >= 0 else 0
+            else:
+                x_vals = np.arange(self.fmax)
+                ax.set_xlabel("FFT bin number")
+                cursor_x = min(self.current_time_index, self.fmax)
             
-            cursor = ax.axvline(min(self.current_time_index,self.fmax), color='red', linestyle='dotted')
+            ax.plot(x_vals, fft[:self.fmax],color='#FF91A4')
+            ax.set_title("Frequency Domain")
+            
+            cursor = ax.axvline(cursor_x, color='red', linestyle='dotted')
             self.time_cursor_lines.append(cursor)
             
 
@@ -1298,6 +1304,63 @@ class SpectralWidget(QWidget):
             logger.error(f"Error loading from zarr: {e}")
             from qtpy.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Load Failed", f"Failed to load Zarr store:\n{str(e)}")
+
+    def delete_selected_result(self):
+        """Delete the selected result from the tree and purge it from memory/viewer."""
+        current_item = self.results_tree.currentItem()
+        if current_item is None:
+            from qtpy.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "No Selection", "Please select a result to delete.")
+            return
+
+        # Gather all numpy arrays we are deleting to check if they're in the viewer
+        data_objects = []
+
+        def collect_and_remove(item):
+            item_id = id(item)
+            if item_id in self.results_dict:
+                obj = self.results_dict.pop(item_id)
+                if isinstance(obj, (np.ndarray, torch.Tensor)):
+                    if isinstance(obj, torch.Tensor):
+                        data_objects.append(obj.cpu().numpy())
+                    else:
+                        data_objects.append(obj)
+                del obj
+
+            for i in range(item.childCount()):
+                collect_and_remove(item.child(i))
+
+        collect_and_remove(current_item)
+
+        # Remove layers from napari viewer that share memory with deleted objects
+        layers_to_remove = []
+        for layer in self.viewer.layers:
+            if not isinstance(layer.data, np.ndarray):
+                continue
+                
+            for obj in data_objects:
+                # Check if layer data is the object or shares the same memory base
+                if layer.data is obj or (layer.data.base is not None and layer.data.base is obj):
+                    layers_to_remove.append(layer)
+                    break
+                elif obj.base is not None and layer.data.base is obj.base:
+                    layers_to_remove.append(layer)
+                    break
+
+        for layer in layers_to_remove:
+            self.viewer.layers.remove(layer)
+
+        # Remove from tree
+        parent = current_item.parent()
+        if parent is not None:
+            parent.removeChild(current_item)
+        else:
+            index = self.results_tree.indexOfTopLevelItem(current_item)
+            self.results_tree.takeTopLevelItem(index)
+
+        # Force garbage collection to free memory immediately
+        import gc
+        gc.collect()
 
     def local_write_to_zarr(self, data, path, chunks=True, compressor="default"):
         """Fallback local implementation of write_to_zarr."""

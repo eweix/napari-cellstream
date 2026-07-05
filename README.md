@@ -1,6 +1,6 @@
 # napari-cellstream
 
-A napari spectral analyzer for pixel-level cellstream diagnostics. This plugin provides tools for analyzing time-series imagery using Fast Fourier Transforms (FFT) and Continuous Wavelet Transforms (CWT), specifically designed for use with the [cellstream](https://github.com/coylelab/cellstream) image processing toolbox.
+A napari spectral analyzer for pixel-level cellstream diagnostics. This plugin provides tools for analyzing time-series imagery using Fast Fourier Transforms (FFT) and Continuous Wavelet Transforms (CWT), specifically designed for use with the [cellstream](https://github.com/CoyleLab-UW-Madison/cellstream) image processing toolbox.
 
 ---
 
@@ -23,19 +23,21 @@ A napari spectral analyzer for pixel-level cellstream diagnostics. This plugin p
 - **False-Color Spectrum:** Visualize spectral axes (time, frequency, or scale) using color-coded projections.
 - **Downsampling:** Efficiently downsample large datasets in time or space for faster processing and visualization.
 
-### 4. Zarr-based results I/O 
+### 4. Zarr-Based Results I/O 
+- **Efficient Storage:** Manage analysis results efficiently using Zarr stores.
+- **Chunked Processing:** Support for reading and writing large multidimensional features without exhausting memory.
 
 ---
 
 ## Installation
 
-You can install `napari-cellstream` via [pip]:
+While `napari-cellstream` can be installed via pip:
 
 ```bash
-pip install napari-cellstream
+pip install git+https://github.com/CoyleLab-UW-Madison/napari-cellstream.git
 ```
 
-To enable GPU acceleration, ensure you have `torch` installed with CUDA support (for NVIDIA GPUs) or that you are on a Mac with Apple Silicon (for MPS support).
+**Recommended Setup:** To ensure all GPU dependencies (like PyTorch and `torch-scatter`) are correctly configured, we highly recommend setting up your environment using the `environment.yml` provided in the core [`cellstream`](https://github.com/CoyleLab-UW-Madison/cellstream) repository.
 
 ---
 
@@ -60,17 +62,8 @@ To enable GPU acceleration, ensure you have `torch` installed with CUDA support 
 
 ## Dependencies
 
-This plugin is inteneded to be used with [cellstream](https://github.com/coylelab/cellstream) for core image processing utilities.
+This plugin is intended to be used with the [cellstream](https://github.com/CoyleLab-UW-Madison/cellstream) package for core image processing utilities.
 
 ---
 
-## Contributing
 
-Contributions are welcome. Please feel free to submit a Pull Request or open an issue on GitHub.
-
-## License
-
-Distributed under the terms of the [BSD-3-Clause] license.
-
-[pip]: https://pypi.org/project/pip/
-[BSD-3-Clause]: http://opensource.org/licenses/BSD-3-Clause
