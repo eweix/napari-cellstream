@@ -10,6 +10,6 @@ contributions:
       title: Spectral Viewer Widget
   widgets:
     - command: napari_cellstream.make_spectral_widget
-      display_name: Spectral Viewer
+      display_name: cellstream spectral analyzer
       autogenerate: false
 

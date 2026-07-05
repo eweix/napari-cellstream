@@ -76,7 +76,7 @@ def make_spectral_widget(viewer=None):
     except Exception as e:
         logger.error(f"Failed to apply torch patch: {e}")
 
-    # Importing widget until *after* setting the ssq_gpu env var
+    # Wait on importing widget until *after* setting the ssq_gpu env var
     from .spectral_analyzer import SpectralWidget
     widget = SpectralWidget(viewer, use_gpu=_USE_GPU)
     
