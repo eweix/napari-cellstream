@@ -131,6 +131,7 @@ def downsample_gui_widget(
 def false_color_widget(
     min_slice: int = 0,
     max_slice: int = 40,
+    axis: int = 0,
     colormap: str = 'turbo'
 ):
     viewer = current_viewer()
@@ -140,10 +141,16 @@ def false_color_widget(
 
     img = torch.from_numpy(layer.data.astype('float32'))
     img_ndim = img.dim()
-    if img_ndim == 4:
-        img = img[min_slice:max_slice]
-    elif img_ndim == 5:
-        img = img[:,:,min_slice:max_slice,:,:]
+    
+    # Handle negative axis indexing properly for generic slicing
+    _axis = axis if axis >= 0 else img_ndim + axis
+    if not (0 <= _axis < img_ndim):
+        raise ValueError(f"Invalid axis {_axis} for {img_ndim}D image")
+
+    # Generically slice along the chosen axis
+    slices = [slice(None)] * img_ndim
+    slices[_axis] = slice(min_slice, max_slice)
+    img = img[tuple(slices)]
 
     false_color_widget._abort_flag = False
     pbar, emitter, MockTqdm = _setup_progress(false_color_widget, "Generating colors...")
@@ -154,7 +161,7 @@ def false_color_widget(
         original_tqdm = getattr(viz, 'tqdm', None)
         viz.tqdm = MockTqdm
         try:
-            cc = color_by_axis(img=img, cmap=colormap)
+            cc = color_by_axis(img=img, axis=axis, cmap=colormap)
             return cc.detach().cpu().numpy()
         finally:
             if original_tqdm is not None:
