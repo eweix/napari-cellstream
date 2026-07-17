@@ -38,7 +38,8 @@ from ._image_tools_widgets import (
     pixel_profile_widget,
     landscape_generation_widget,
     hann_filter_widget,
-    temporal_convolution_widget
+    temporal_convolution_widget,
+    phase_velocity_widget
 )
 
 from qtpy.QtWidgets import QStackedWidget
@@ -253,7 +254,8 @@ class SpectralWidget(QWidget):
             "Pixel Profile Spectra",
             "Generate 2D Landscape",
             "Hann Filter",
-            "Temporal Convolution"
+            "Temporal Convolution",
+            "Phase Velocity"
         ])
         
         self.image_tools_stack = QStackedWidget()
@@ -268,7 +270,8 @@ class SpectralWidget(QWidget):
             pixel_profile_widget.native,
             landscape_generation_widget.native,
             hann_filter_widget.native,
-            temporal_convolution_widget.native
+            temporal_convolution_widget.native,
+            phase_velocity_widget.native
         ]:
             container = QWidget()
             lay = QVBoxLayout(container)
@@ -298,6 +301,7 @@ class SpectralWidget(QWidget):
         landscape_generation_widget.called.connect(lambda r: _dispatch_tool_result(r, "Generated Landscape"))
         hann_filter_widget.called.connect(lambda r: _dispatch_tool_result(r, "Hann Filter"))
         temporal_convolution_widget.called.connect(lambda r: _dispatch_tool_result(r, "Temporal Convolution"))
+        phase_velocity_widget.called.connect(lambda r: _dispatch_tool_result(r, "Phase Velocity"))
 
         # Wrap the stack in a QScrollArea so large widgets don't break the layout
         scroll_area = QScrollArea()
@@ -509,6 +513,18 @@ class SpectralWidget(QWidget):
         import pandas as pd
         
         # Check if the tool is the landscape generator acting on a DataFrame
+        if isinstance(result, dict) and result.get('action') == 'add_vectors':
+            napari_vectors = result['data']
+            name = result.get('name', tool_name)
+            self.viewer.add_vectors(
+                napari_vectors,
+                edge_width=1.5,
+                length=1,
+                edge_color='cyan',
+                name=name
+            )
+            return
+
         if isinstance(result, dict) and result.get('action') == 'generate_landscape':
             current_item = self.results_tree.currentItem()
             if current_item is None:

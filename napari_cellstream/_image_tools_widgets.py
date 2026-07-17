@@ -523,3 +523,92 @@ def temporal_convolution_widget(
     worker = _conv_worker()
     _add_cancel_button(temporal_convolution_widget, worker, pbar)
     return worker
+
+# 11. Phase Velocity Tool
+@magicgui(
+    call_button="Extract Flow Field",
+    method={"choices": ["Analytic", "Binned PIV"]},
+)
+def phase_velocity_widget(
+    method: str = "Analytic",
+    smooth_sigma: float = 1.0,
+    num_bins: int = 8,
+    window_size: int = 16,
+    overlap: int = 8,
+    upsample_piv: bool = True
+):
+    viewer = current_viewer()
+    if viewer is None: raise RuntimeError("No active napari viewer found")
+    layer = viewer.layers.selection.active
+    if layer is None or not isinstance(layer, Image): raise RuntimeError("No active image layer selected")
+
+    img = torch.from_numpy(layer.data.astype('float32'))
+    phase_velocity_widget._abort_flag = False
+    pbar, emitter, MockTqdm = _setup_progress(phase_velocity_widget, "Extracting Flow...")
+
+    @thread_worker
+    def _flow_worker():
+        from cellstream.flow import phase_velocity, binned_piv_velocity
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        try:
+            if method == "Analytic":
+                v, speed = phase_velocity(img, smooth_sigma=smooth_sigma, device=device)
+                T_out, _, Y_out, X_out = v.shape
+                # Subsample visual arrows slightly
+                step = max(1, Y_out // 32)
+                t_idx, y_idx, x_idx = np.meshgrid(
+                    np.arange(T_out), 
+                    np.arange(0, Y_out, step), 
+                    np.arange(0, X_out, step), 
+                    indexing='ij'
+                )
+            else:
+                v, coords = binned_piv_velocity(
+                    img, num_bins=num_bins, window_size=window_size, 
+                    overlap=overlap, device=device, upsample=upsample_piv
+                )
+                if upsample_piv:
+                    T_out, _, Y_out, X_out = v.shape
+                    step = max(1, Y_out // 32)
+                    t_idx, y_idx, x_idx = np.meshgrid(
+                        np.arange(T_out), 
+                        np.arange(0, Y_out, step), 
+                        np.arange(0, X_out, step), 
+                        indexing='ij'
+                    )
+                else:
+                    y_centers, x_centers = coords
+                    T_out = v.shape[0]
+                    t_idx, y_idx, x_idx = np.meshgrid(
+                        np.arange(T_out),
+                        y_centers,
+                        x_centers,
+                        indexing='ij'
+                    )
+                    step = 1
+
+            v_np = v.detach().cpu().numpy()
+            
+            starts = np.stack([t_idx.flatten(), y_idx.flatten(), x_idx.flatten()], axis=1)
+            
+            if method == "Analytic" or upsample_piv:
+                vx = v_np[:, 0, ::step, ::step].flatten()
+                vy = v_np[:, 1, ::step, ::step].flatten()
+            else:
+                vx = v_np[:, 0, :, :].flatten()
+                vy = v_np[:, 1, :, :].flatten()
+                
+            dt = np.zeros_like(vx)
+            directions = np.stack([dt, vy, vx], axis=1)
+            napari_vectors = np.stack([starts, directions], axis=1)
+            
+            return {'action': 'add_vectors', 'data': napari_vectors, 'name': f'{method} Flow'}
+            
+        finally:
+            if getattr(phase_velocity_widget, '_abort_flag', False) and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    worker = _flow_worker()
+    _add_cancel_button(phase_velocity_widget, worker, pbar)
+    return worker
