@@ -512,6 +512,12 @@ class SpectralWidget(QWidget):
     def handle_image_tool_result(self, result, tool_name):
         import pandas as pd
         
+        # If the result is a list or tuple, process each item recursively
+        if isinstance(result, (list, tuple)):
+            for res in result:
+                self.handle_image_tool_result(res, tool_name)
+            return
+            
         if isinstance(result, dict) and result.get('action') == 'add_vectors':
             napari_vectors = result['data']
             name = result.get('name', tool_name)
@@ -533,6 +539,21 @@ class SpectralWidget(QWidget):
                 kwargs['translate'] = result['translate']
                 
             self.viewer.add_vectors(napari_vectors, **kwargs)
+            return
+
+        if isinstance(result, dict) and result.get('action') == 'add_image':
+            image_data = result['data']
+            name = result.get('name', tool_name)
+            
+            kwargs = {'name': name}
+            if 'colormap' in result:
+                kwargs['colormap'] = result['colormap']
+            if 'scale' in result:
+                kwargs['scale'] = result['scale']
+            if 'translate' in result:
+                kwargs['translate'] = result['translate']
+                
+            self.viewer.add_image(image_data, **kwargs)
             return
 
         if isinstance(result, dict) and result.get('action') == 'generate_landscape':

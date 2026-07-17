@@ -536,7 +536,10 @@ def phase_velocity_widget(
     window_size: int = 16,
     overlap: int = 8,
     upsample_piv: bool = True,
-    vector_spacing: int = 16
+    vector_spacing: int = 16,
+    show_vectors: bool = True,
+    show_angle_image: bool = False,
+    show_magnitude_image: bool = False,
 ):
     viewer = current_viewer()
     if viewer is None: raise RuntimeError("No active napari viewer found")
@@ -609,43 +612,87 @@ def phase_velocity_widget(
 
             v_np = v.detach().cpu().numpy()
             
-            if method == "Analytic" or upsample_piv:
-                vx = v_np[:, 0, ::step, ::step].flatten()
-                vy = v_np[:, 1, ::step, ::step].flatten()
-            else:
-                vx = v_np[:, 0, :, :].flatten()
-                vy = v_np[:, 1, :, :].flatten()
-                
-            t_flat = t_idx.flatten()
-            y_flat = y_idx.flatten()
-            x_flat = x_idx.flatten()
-            dt = np.zeros_like(vx)
+            outputs = []
             
-            if is_4d:
-                z_flat = np.zeros_like(t_flat)
-                if is_z_first:
-                    starts = np.stack([z_flat, t_flat, y_flat, x_flat], axis=1)
-                    directions = np.stack([dt, dt, vy, vx], axis=1)
+            # 1. Images (Angle & Magnitude)
+            if show_angle_image or show_magnitude_image:
+                # v_np is (T, 2, Y, X)
+                vy_full = v_np[:, 1, :, :]
+                vx_full = v_np[:, 0, :, :]
+                
+                mag = np.sqrt(vx_full**2 + vy_full**2)
+                ang = np.arctan2(vy_full, vx_full)
+                
+                # Reshape back to 4D if original was 4D
+                if is_4d:
+                    if is_z_first:
+                        mag = np.expand_dims(mag, axis=0)
+                        ang = np.expand_dims(ang, axis=0)
+                    else:
+                        mag = np.expand_dims(mag, axis=1)
+                        ang = np.expand_dims(ang, axis=1)
+                
+                if show_magnitude_image:
+                    outputs.append({
+                        'action': 'add_image',
+                        'data': mag,
+                        'name': f'{method} Magnitude',
+                        'colormap': 'magma',
+                        'scale': layer.scale,
+                        'translate': layer.translate
+                    })
+                
+                if show_angle_image:
+                    outputs.append({
+                        'action': 'add_image',
+                        'data': ang,
+                        'name': f'{method} Angle',
+                        'colormap': 'hsv',
+                        'scale': layer.scale,
+                        'translate': layer.translate
+                    })
+            
+            # 2. Vectors
+            if show_vectors:
+                if method == "Analytic" or upsample_piv:
+                    vx = v_np[:, 0, ::step, ::step].flatten()
+                    vy = v_np[:, 1, ::step, ::step].flatten()
                 else:
-                    starts = np.stack([t_flat, z_flat, y_flat, x_flat], axis=1)
-                    directions = np.stack([dt, dt, vy, vx], axis=1)
-            else:
-                starts = np.stack([t_flat, y_flat, x_flat], axis=1)
-                directions = np.stack([dt, vy, vx], axis=1)
+                    vx = v_np[:, 0, :, :].flatten()
+                    vy = v_np[:, 1, :, :].flatten()
+                    
+                t_flat = t_idx.flatten()
+                y_flat = y_idx.flatten()
+                x_flat = x_idx.flatten()
+                dt = np.zeros_like(vx)
                 
-            napari_vectors = np.stack([starts, directions], axis=1)
-            angles = np.arctan2(vy, vx)
+                if is_4d:
+                    z_flat = np.zeros_like(t_flat)
+                    if is_z_first:
+                        starts = np.stack([z_flat, t_flat, y_flat, x_flat], axis=1)
+                        directions = np.stack([dt, dt, vy, vx], axis=1)
+                    else:
+                        starts = np.stack([t_flat, z_flat, y_flat, x_flat], axis=1)
+                        directions = np.stack([dt, dt, vy, vx], axis=1)
+                else:
+                    starts = np.stack([t_flat, y_flat, x_flat], axis=1)
+                    directions = np.stack([dt, vy, vx], axis=1)
+                    
+                napari_vectors = np.stack([starts, directions], axis=1)
+                angles = np.arctan2(vy, vx)
+                
+                outputs.append({
+                    'action': 'add_vectors', 
+                    'data': napari_vectors, 
+                    'name': f'{method} Flow',
+                    'features': {'angle': angles},
+                    'edge_color': 'angle',
+                    'edge_colormap': 'hsv',
+                    'scale': layer.scale,
+                    'translate': layer.translate
+                })
             
-            return {
-                'action': 'add_vectors', 
-                'data': napari_vectors, 
-                'name': f'{method} Flow',
-                'features': {'angle': angles},
-                'edge_color': 'angle',
-                'edge_colormap': 'hsv',
-                'scale': layer.scale,
-                'translate': layer.translate
-            }
+            return outputs
             
         finally:
             if getattr(phase_velocity_widget, '_abort_flag', False) and torch.cuda.is_available():
