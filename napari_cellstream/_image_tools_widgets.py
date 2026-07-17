@@ -544,24 +544,23 @@ def phase_velocity_widget(
     if layer is None or not isinstance(layer, Image): raise RuntimeError("No active image layer selected")
 
     raw_shape = layer.data.shape
-    img = torch.from_numpy(layer.data.astype('float32')).squeeze()
+    img = torch.from_numpy(layer.data.astype('float32'))
     
-    is_4d = False
+    is_4d = len(raw_shape) == 4
     is_z_first = False
     
+    if is_4d:
+        if raw_shape[0] <= raw_shape[1]:
+            img = img[0]
+            is_z_first = True
+        else:
+            img = img[:, 0]
+            is_z_first = False
+            
+    img = img.squeeze()
+    
     if img.ndim != 3:
-        # Try to resolve 4D by taking the first slice of the smallest of the first two dims
-        if img.ndim == 4:
-            is_4d = True
-            if img.shape[0] <= img.shape[1]:
-                img = img[0]
-                is_z_first = True
-            else:
-                img = img[:, 0]
-                is_z_first = False
-        
-        if img.ndim != 3:
-            raise ValueError(f"Expected a 3D phase image (T, Y, X). Got shape {raw_shape}.")
+        raise ValueError(f"Expected a 3D phase image (T, Y, X). Got shape {raw_shape}.")
 
     phase_velocity_widget._abort_flag = False
     pbar, emitter, MockTqdm = _setup_progress(phase_velocity_widget, "Extracting Flow...")
