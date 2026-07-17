@@ -535,7 +535,8 @@ def phase_velocity_widget(
     num_bins: int = 8,
     window_size: int = 16,
     overlap: int = 8,
-    upsample_piv: bool = True
+    upsample_piv: bool = True,
+    vector_spacing: int = 16
 ):
     viewer = current_viewer()
     if viewer is None: raise RuntimeError("No active napari viewer found")
@@ -575,7 +576,7 @@ def phase_velocity_widget(
                 v, speed = phase_velocity(img, smooth_sigma=smooth_sigma, device=device)
                 T_out, _, Y_out, X_out = v.shape
                 # Subsample visual arrows slightly
-                step = max(1, Y_out // 32)
+                step = max(1, vector_spacing)
                 t_idx, y_idx, x_idx = np.meshgrid(
                     np.arange(T_out), 
                     np.arange(0, Y_out, step), 
@@ -589,7 +590,7 @@ def phase_velocity_widget(
                 )
                 if upsample_piv:
                     T_out, _, Y_out, X_out = v.shape
-                    step = max(1, Y_out // 32)
+                    step = max(1, vector_spacing)
                     t_idx, y_idx, x_idx = np.meshgrid(
                         np.arange(T_out), 
                         np.arange(0, Y_out, step), 
@@ -642,7 +643,9 @@ def phase_velocity_widget(
                 'name': f'{method} Flow',
                 'features': {'angle': angles},
                 'edge_color': 'angle',
-                'edge_colormap': 'hsv'
+                'edge_colormap': 'hsv',
+                'scale': layer.scale,
+                'translate': layer.translate
             }
             
         finally:

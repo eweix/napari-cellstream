@@ -527,6 +527,10 @@ class SpectralWidget(QWidget):
                 kwargs['features'] = result['features']
             if 'edge_colormap' in result:
                 kwargs['edge_colormap'] = result['edge_colormap']
+            if 'scale' in result:
+                kwargs['scale'] = result['scale']
+            if 'translate' in result:
+                kwargs['translate'] = result['translate']
                 
             self.viewer.add_vectors(napari_vectors, **kwargs)
             return
