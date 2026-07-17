@@ -586,11 +586,13 @@ def phase_velocity_widget(
                     indexing='ij'
                 )
             else:
-                v, coords = binned_piv_velocity(
+                result = binned_piv_velocity(
                     img, num_bins=num_bins, window_size=window_size, 
                     overlap=overlap, device=device, upsample=upsample_piv
                 )
+                
                 if upsample_piv:
+                    v = result
                     T_out, _, Y_out, X_out = v.shape
                     step = max(1, vector_spacing)
                     t_idx, y_idx, x_idx = np.meshgrid(
