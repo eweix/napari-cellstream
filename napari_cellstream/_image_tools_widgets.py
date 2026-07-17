@@ -542,18 +542,25 @@ def phase_velocity_widget(
     layer = viewer.layers.selection.active
     if layer is None or not isinstance(layer, Image): raise RuntimeError("No active image layer selected")
 
+    raw_shape = layer.data.shape
     img = torch.from_numpy(layer.data.astype('float32')).squeeze()
+    
+    is_4d = False
+    is_z_first = False
     
     if img.ndim != 3:
         # Try to resolve 4D by taking the first slice of the smallest of the first two dims
         if img.ndim == 4:
+            is_4d = True
             if img.shape[0] <= img.shape[1]:
                 img = img[0]
+                is_z_first = True
             else:
                 img = img[:, 0]
+                is_z_first = False
         
         if img.ndim != 3:
-            raise ValueError(f"Expected a 3D phase image (T, Y, X). Got shape {layer.data.shape}.")
+            raise ValueError(f"Expected a 3D phase image (T, Y, X). Got shape {raw_shape}.")
 
     phase_velocity_widget._abort_flag = False
     pbar, emitter, MockTqdm = _setup_progress(phase_velocity_widget, "Extracting Flow...")
@@ -602,8 +609,6 @@ def phase_velocity_widget(
 
             v_np = v.detach().cpu().numpy()
             
-            starts = np.stack([t_idx.flatten(), y_idx.flatten(), x_idx.flatten()], axis=1)
-            
             if method == "Analytic" or upsample_piv:
                 vx = v_np[:, 0, ::step, ::step].flatten()
                 vy = v_np[:, 1, ::step, ::step].flatten()
@@ -611,11 +616,34 @@ def phase_velocity_widget(
                 vx = v_np[:, 0, :, :].flatten()
                 vy = v_np[:, 1, :, :].flatten()
                 
+            t_flat = t_idx.flatten()
+            y_flat = y_idx.flatten()
+            x_flat = x_idx.flatten()
             dt = np.zeros_like(vx)
-            directions = np.stack([dt, vy, vx], axis=1)
-            napari_vectors = np.stack([starts, directions], axis=1)
             
-            return {'action': 'add_vectors', 'data': napari_vectors, 'name': f'{method} Flow'}
+            if is_4d:
+                z_flat = np.zeros_like(t_flat)
+                if is_z_first:
+                    starts = np.stack([z_flat, t_flat, y_flat, x_flat], axis=1)
+                    directions = np.stack([dt, dt, vy, vx], axis=1)
+                else:
+                    starts = np.stack([t_flat, z_flat, y_flat, x_flat], axis=1)
+                    directions = np.stack([dt, dt, vy, vx], axis=1)
+            else:
+                starts = np.stack([t_flat, y_flat, x_flat], axis=1)
+                directions = np.stack([dt, vy, vx], axis=1)
+                
+            napari_vectors = np.stack([starts, directions], axis=1)
+            angles = np.arctan2(vy, vx)
+            
+            return {
+                'action': 'add_vectors', 
+                'data': napari_vectors, 
+                'name': f'{method} Flow',
+                'features': {'angle': angles},
+                'edge_color': 'angle',
+                'edge_colormap': 'hsv'
+            }
             
         finally:
             if getattr(phase_velocity_widget, '_abort_flag', False) and torch.cuda.is_available():

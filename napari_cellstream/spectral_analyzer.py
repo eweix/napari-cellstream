@@ -512,17 +512,23 @@ class SpectralWidget(QWidget):
     def handle_image_tool_result(self, result, tool_name):
         import pandas as pd
         
-        # Check if the tool is the landscape generator acting on a DataFrame
         if isinstance(result, dict) and result.get('action') == 'add_vectors':
             napari_vectors = result['data']
             name = result.get('name', tool_name)
-            self.viewer.add_vectors(
-                napari_vectors,
-                edge_width=1.5,
-                length=1,
-                edge_color='cyan',
-                name=name
-            )
+            
+            kwargs = {
+                'edge_width': 1.5,
+                'length': 1,
+                'name': name,
+                'edge_color': result.get('edge_color', 'cyan')
+            }
+            
+            if 'features' in result:
+                kwargs['features'] = result['features']
+            if 'edge_colormap' in result:
+                kwargs['edge_colormap'] = result['edge_colormap']
+                
+            self.viewer.add_vectors(napari_vectors, **kwargs)
             return
 
         if isinstance(result, dict) and result.get('action') == 'generate_landscape':
