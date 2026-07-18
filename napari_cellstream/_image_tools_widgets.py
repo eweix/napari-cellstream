@@ -526,20 +526,17 @@ def temporal_convolution_widget(
 
 # 11. Phase Velocity Tool
 @magicgui(
-    call_button="Extract Flow Field",
-    method={"choices": ["Analytic", "Binned PIV"]},
+    call_button="Extract Flow Field"
 )
 def phase_velocity_widget(
-    method: str = "Analytic",
     smooth_sigma: float = 1.0,
-    num_bins: int = 8,
-    window_size: int = 16,
-    overlap: int = 8,
-    upsample_piv: bool = True,
     vector_spacing: int = 16,
     show_vectors: bool = True,
     show_angle_image: bool = False,
     show_magnitude_image: bool = False,
+    show_streamlines: bool = False,
+    stream_particles: int = 20000,
+    stream_decay: float = 0.85
 ):
     viewer = current_viewer()
     if viewer is None: raise RuntimeError("No active napari viewer found")
@@ -570,47 +567,20 @@ def phase_velocity_widget(
 
     @thread_worker
     def _flow_worker():
-        from cellstream.flow import phase_velocity, binned_piv_velocity
+        from cellstream.flow.analytic import phase_velocity, generate_streamlines
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         try:
-            if method == "Analytic":
-                v, speed = phase_velocity(img, smooth_sigma=smooth_sigma, device=device)
-                T_out, _, Y_out, X_out = v.shape
-                # Subsample visual arrows slightly
-                step = max(1, vector_spacing)
-                t_idx, y_idx, x_idx = np.meshgrid(
-                    np.arange(T_out), 
-                    np.arange(0, Y_out, step), 
-                    np.arange(0, X_out, step), 
-                    indexing='ij'
-                )
-            else:
-                result = binned_piv_velocity(
-                    img, num_bins=num_bins, window_size=window_size, 
-                    overlap=overlap, device=device, upsample=upsample_piv
-                )
-                
-                if upsample_piv:
-                    v = result
-                    T_out, _, Y_out, X_out = v.shape
-                    step = max(1, vector_spacing)
-                    t_idx, y_idx, x_idx = np.meshgrid(
-                        np.arange(T_out), 
-                        np.arange(0, Y_out, step), 
-                        np.arange(0, X_out, step), 
-                        indexing='ij'
-                    )
-                else:
-                    y_centers, x_centers = coords
-                    T_out = v.shape[0]
-                    t_idx, y_idx, x_idx = np.meshgrid(
-                        np.arange(T_out),
-                        y_centers,
-                        x_centers,
-                        indexing='ij'
-                    )
-                    step = 1
+            v, speed = phase_velocity(img, smooth_sigma=smooth_sigma, device=device)
+            T_out, _, Y_out, X_out = v.shape
+            # Subsample visual arrows slightly
+            step = max(1, vector_spacing)
+            t_idx, y_idx, x_idx = np.meshgrid(
+                np.arange(T_out), 
+                np.arange(0, Y_out, step), 
+                np.arange(0, X_out, step), 
+                indexing='ij'
+            )
 
             v_np = v.detach().cpu().numpy()
             
@@ -638,7 +608,7 @@ def phase_velocity_widget(
                     outputs.append({
                         'action': 'add_image',
                         'data': mag,
-                        'name': f'{method} Magnitude',
+                        'name': 'Velocity Magnitude',
                         'colormap': 'magma',
                         'scale': layer.scale,
                         'translate': layer.translate
@@ -648,20 +618,41 @@ def phase_velocity_widget(
                     outputs.append({
                         'action': 'add_image',
                         'data': ang,
-                        'name': f'{method} Angle',
+                        'name': 'Velocity Angle',
                         'colormap': 'hsv',
                         'scale': layer.scale,
                         'translate': layer.translate
                     })
+                    
+            # 2. Streamlines (Comet Tails)
+            if show_streamlines:
+                stream_img = generate_streamlines(
+                    v, 
+                    num_particles=stream_particles, 
+                    decay=stream_decay, 
+                    device=device
+                )
+                stream_np = stream_img.cpu().numpy()
+                
+                if is_4d:
+                    if is_z_first:
+                        stream_np = np.expand_dims(stream_np, axis=0)
+                    else:
+                        stream_np = np.expand_dims(stream_np, axis=1)
+                        
+                outputs.append({
+                    'action': 'add_image',
+                    'data': stream_np,
+                    'name': 'Streamlines',
+                    'colormap': 'inferno',
+                    'scale': layer.scale,
+                    'translate': layer.translate
+                })
             
-            # 2. Vectors
+            # 3. Vectors
             if show_vectors:
-                if method == "Analytic" or upsample_piv:
-                    vx = v_np[:, 0, ::step, ::step].flatten()
-                    vy = v_np[:, 1, ::step, ::step].flatten()
-                else:
-                    vx = v_np[:, 0, :, :].flatten()
-                    vy = v_np[:, 1, :, :].flatten()
+                vx = v_np[:, 0, ::step, ::step].flatten()
+                vy = v_np[:, 1, ::step, ::step].flatten()
                     
                 t_flat = t_idx.flatten()
                 y_flat = y_idx.flatten()
@@ -686,7 +677,7 @@ def phase_velocity_widget(
                 outputs.append({
                     'action': 'add_vectors', 
                     'data': napari_vectors, 
-                    'name': f'{method} Flow',
+                    'name': 'Velocity Vectors',
                     'features': {'angle': angles},
                     'edge_color': 'angle',
                     'edge_colormap': 'hsv',
