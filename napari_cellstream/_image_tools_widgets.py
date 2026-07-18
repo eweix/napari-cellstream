@@ -1,6 +1,6 @@
 from magicgui import magicgui
 from magicgui.widgets import PushButton
-from napari.layers import Image
+from napari.layers import Image, Labels
 from napari import current_viewer
 from qtpy.QtWidgets import QWidget
 import torch
@@ -540,7 +540,7 @@ def phase_velocity_widget(
     show_transport_highways: bool = False,
     stream_particles: int = 20000,
     stream_decay: float = 0.85,
-    stream_mask: 'napari.layers.Labels' = None
+    stream_mask: Labels = None
 ):
     viewer = current_viewer()
     if viewer is None: raise RuntimeError("No active napari viewer found")
