@@ -552,299 +552,185 @@ def phase_features_widget(
 
     @thread_worker
     def _flow_worker():
-        from cellstream.phase.analytic import phase_velocity, generate_streamlines, generate_instantaneous_streamlines, generate_phase_colored_streamlines, compute_ftle
+        from cellstream.phase.utils import generate_phase_features
+        import cellstream.phase.utils as phase_utils
+        original_tqdm = getattr(phase_utils, 'tqdm', None)
+        phase_utils.tqdm = MockTqdm
+        
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         try:
-            v, speed, wavenumber = phase_velocity(img, smooth_sigma=smooth_sigma, device=device)
-            T_out, _, Y_out, X_out = v.shape
-            # Subsample visual arrows slightly
-            step = max(1, vector_spacing)
-            t_idx, y_idx, x_idx = np.meshgrid(
-                np.arange(T_out), 
-                np.arange(0, Y_out, step), 
-                np.arange(0, X_out, step), 
-                indexing='ij'
+            # Build the list of features to process based on UI checkboxes
+            features_to_process = []
+            
+            if show_defects:
+                features_to_process.append('winding_number')
+            
+            # These require basic velocity
+            if show_angle_image or show_magnitude_image or show_vectors or show_wavelength_image:
+                features_to_process.append('velocity')
+                
+            if show_forward_ftle:
+                features_to_process.append('ftle_forward')
+            if show_backward_ftle:
+                features_to_process.append('ftle_backward')
+                
+            if show_streamlines or show_transport_highways:
+                features_to_process.append('streamlines')
+            if show_phase_streamlines:
+                features_to_process.append('phase_streamlines')
+                
+            # Actually generate everything
+            features = generate_phase_features(
+                img,
+                mask=mask_tensor if 'mask_tensor' in locals() and mask_tensor is not None else None,
+                device=device,
+                ftle_integration_time=ftle_integration_time,
+                smooth_sigma=smooth_sigma,
+                defect_window_size=defect_window_size,
+                phase_features_to_process=features_to_process,
+                stream_particles=stream_particles,
+                stream_decay=stream_decay,
+                stream_inject_rate=stream_inject_rate
             )
-
-            v_np = v.detach().cpu().numpy()
             
             outputs = []
             
-            # 1. Defects (Winding Number Field)
-            if show_defects:
-                from cellstream.phase.utils import winding_number
-                wn = winding_number(img, n=defect_window_size, device=device, row_blocks='auto')
-                wn_np = wn.cpu().numpy()
-                
+            # Helper to reshape arrays for Napari if input was 4D
+            def _reshape(arr):
                 if is_4d:
-                    if is_z_first:
-                        wn_np = np.expand_dims(wn_np, axis=0)
-                    else:
-                        wn_np = np.expand_dims(wn_np, axis=1)
-                        
+                    if is_z_first: return np.expand_dims(arr, axis=0)
+                    else: return np.expand_dims(arr, axis=1)
+                return arr
+            
+            if 'winding_number' in features:
                 outputs.append({
                     'action': 'add_image',
-                    'data': wn_np,
+                    'data': _reshape(features['winding_number']),
                     'name': 'Winding Number (Defects)',
-                    'colormap': 'bop blue', # Use divergent colormap if appropriate, bop blue works
+                    'colormap': 'bop blue',
                     'scale': layer.scale,
                     'translate': layer.translate
                 })
-            
-            # 2. Images (Angle & Magnitude)
-            if show_angle_image or show_magnitude_image:
-                # v_np is (T, 2, Y, X)
+                
+            if 'velocity' in features:
+                v_np = features['velocity'] # (T, 2, Y, X)
                 vy_full = v_np[:, 1, :, :]
                 vx_full = v_np[:, 0, :, :]
                 
-                mag = np.sqrt(vx_full**2 + vy_full**2)
-                ang = np.arctan2(vy_full, vx_full)
-                
-                # Reshape back to 4D if original was 4D
-                if is_4d:
-                    if is_z_first:
-                        mag = np.expand_dims(mag, axis=0)
-                        ang = np.expand_dims(ang, axis=0)
-                    else:
-                        mag = np.expand_dims(mag, axis=1)
-                        ang = np.expand_dims(ang, axis=1)
-                
                 if show_magnitude_image:
+                    mag = np.sqrt(vx_full**2 + vy_full**2)
                     outputs.append({
-                        'action': 'add_image',
-                        'data': mag,
-                        'name': 'Velocity Magnitude',
-                        'colormap': 'magma',
-                        'scale': layer.scale,
-                        'translate': layer.translate
+                        'action': 'add_image', 'data': _reshape(mag),
+                        'name': 'Velocity Magnitude', 'colormap': 'magma',
+                        'scale': layer.scale, 'translate': layer.translate
                     })
-                
+                    
                 if show_angle_image:
+                    ang = np.arctan2(vy_full, vx_full)
                     outputs.append({
-                        'action': 'add_image',
-                        'data': ang,
-                        'name': 'Velocity Angle',
-                        'colormap': 'hsv',
-                        'scale': layer.scale,
-                        'translate': layer.translate
+                        'action': 'add_image', 'data': _reshape(ang),
+                        'name': 'Velocity Angle', 'colormap': 'hsv',
+                        'scale': layer.scale, 'translate': layer.translate
                     })
                     
-            if show_wavelength_image:
-                wave_np = wavenumber.detach().cpu().numpy()
-                wavelength = 2 * np.pi / (wave_np + 1e-8)
-                
-                # Cap the maximum wavelength for display (100 pixels is visually huge)
-                wavelength = np.clip(wavelength, 0, 100)
-                
-                if is_4d:
-                    if is_z_first:
-                        wavelength = np.expand_dims(wavelength, axis=0)
-                    else:
-                        wavelength = np.expand_dims(wavelength, axis=1)
-                        
-                outputs.append({
-                    'action': 'add_image',
-                    'data': wavelength,
-                    'name': 'Spatial Wavelength',
-                    'colormap': 'turbo',
-                    'scale': layer.scale,
-                    'translate': layer.translate
-                })
+                if show_wavelength_image:
+                    # Recompute wavenumber from velocity speed
+                    speed = np.sqrt(vx_full**2 + vy_full**2)
+                    wavelength = 2 * np.pi / (speed + 1e-8)
+                    wavelength = np.clip(wavelength, 0, 100)
+                    outputs.append({
+                        'action': 'add_image', 'data': _reshape(wavelength),
+                        'name': 'Spatial Wavelength', 'colormap': 'turbo',
+                        'scale': layer.scale, 'translate': layer.translate
+                    })
                     
-            # 2. Dynamic Streamlines (Comet Tails)
-            mask_tensor = None
-            if mask_np is not None:
-                mask_tensor = torch.from_numpy(mask_np).squeeze()
-                if is_4d:
-                    if mask_tensor.ndim == 4:
-                        mask_tensor = mask_tensor[0] if is_z_first else mask_tensor[:, 0]
-            
-            if show_streamlines or show_transport_highways:
-                stream_img = generate_streamlines(
-                    v, 
-                    num_particles=stream_particles, 
-                    decay=stream_decay, 
-                    device=device,
-                    mask=mask_tensor,
-                    inject_rate=stream_inject_rate
-                )
-                
-                if show_streamlines:
-                    stream_np = stream_img.cpu().numpy()
+                if show_vectors:
+                    T_out, _, Y_out, X_out = v_np.shape
+                    step = max(1, vector_spacing)
+                    t_idx, y_idx, x_idx = np.meshgrid(
+                        np.arange(T_out), np.arange(0, Y_out, step), np.arange(0, X_out, step), indexing='ij'
+                    )
+                    vx = v_np[:, 0, ::step, ::step].flatten()
+                    vy = v_np[:, 1, ::step, ::step].flatten()
+                    t_flat, y_flat, x_flat = t_idx.flatten(), y_idx.flatten(), x_idx.flatten()
+                    dt = np.zeros_like(vx)
                     
                     if is_4d:
+                        z_flat = np.zeros_like(t_flat)
                         if is_z_first:
-                            stream_np = np.expand_dims(stream_np, axis=0)
+                            starts = np.stack([z_flat, t_flat, y_flat, x_flat], axis=1)
+                            directions = np.stack([dt, dt, vy, vx], axis=1)
                         else:
-                            stream_np = np.expand_dims(stream_np, axis=1)
-                            
+                            starts = np.stack([t_flat, z_flat, y_flat, x_flat], axis=1)
+                            directions = np.stack([dt, dt, vy, vx], axis=1)
+                    else:
+                        starts = np.stack([t_flat, y_flat, x_flat], axis=1)
+                        directions = np.stack([dt, vy, vx], axis=1)
+                        
+                    napari_vectors = np.stack([starts, directions], axis=1)
+                    angles = np.arctan2(vy, vx)
                     outputs.append({
-                        'action': 'add_image',
-                        'data': stream_np,
-                        'name': 'Dynamic Streamlines',
-                        'colormap': 'inferno',
-                        'scale': layer.scale,
-                        'translate': layer.translate
+                        'action': 'add_vectors', 'data': napari_vectors, 
+                        'name': 'Velocity Vectors', 'features': {'angle': angles},
+                        'edge_color': 'angle', 'edge_colormap': 'hsv',
+                        'scale': layer.scale, 'translate': layer.translate
                     })
                     
+            if 'ftle_forward' in features:
+                outputs.append({
+                    'action': 'add_image', 'data': _reshape(features['ftle_forward']),
+                    'name': 'Forward FTLE (Repelling)', 'colormap': 'inferno',
+                    'scale': layer.scale, 'translate': layer.translate
+                })
+                
+            if 'ftle_backward' in features:
+                outputs.append({
+                    'action': 'add_image', 'data': _reshape(features['ftle_backward']),
+                    'name': 'Backward FTLE (Attracting)', 'colormap': 'inferno',
+                    'scale': layer.scale, 'translate': layer.translate
+                })
+                
+            if 'streamlines' in features:
+                if show_streamlines:
+                    outputs.append({
+                        'action': 'add_image', 'data': _reshape(features['streamlines']),
+                        'name': 'Dynamic Streamlines', 'colormap': 'inferno',
+                        'scale': layer.scale, 'translate': layer.translate
+                    })
                 if show_transport_highways:
-                    # Time-average the pathlines to get stable Lagrangian coherent structures
-                    highways = stream_img.mean(dim=0).cpu().numpy()
+                    highways = features['streamlines'].mean(axis=0)
                     outputs.append({
-                        'action': 'add_image',
-                        'data': highways,
-                        'name': 'Transport Highways (LCS)',
-                        'colormap': 'magma',
-                        'scale': layer.scale[-2:],
-                        'translate': layer.translate[-2:]
+                        'action': 'add_image', 'data': highways,
+                        'name': 'Transport Highways (LCS)', 'colormap': 'magma',
+                        'scale': layer.scale[-2:], 'translate': layer.translate[-2:]
                     })
                     
-            if show_phase_streamlines:
-                phase_stream_img = generate_phase_colored_streamlines(
-                    v, 
-                    phase=img,
-                    num_particles=stream_particles, 
-                    decay=stream_decay, 
-                    device=device,
-                    mask=mask_tensor,
-                    inject_rate=stream_inject_rate
-                )
-                phase_stream_np = phase_stream_img.cpu().numpy()
-                
-                # Input shape is (T, 3, Y, X)
-                # Output shape for napari should be (T, Y, X, 3) for RGB display
-                rgb_np = np.moveaxis(phase_stream_np, 1, -1)
-                
-                if is_4d:
-                    if is_z_first:
-                        rgb_np = np.expand_dims(rgb_np, axis=0)
-                    else:
-                        rgb_np = np.expand_dims(rgb_np, axis=1)
-                        
+            if 'phase_streamlines' in features:
+                rgb_np = np.moveaxis(features['phase_streamlines'], 1, -1)
                 outputs.append({
-                    'action': 'add_image',
-                    'data': rgb_np,
-                    'name': 'Phase-Colored Flow',
-                    'rgb': True,
-                    'scale': layer.scale,
-                    'translate': layer.translate
+                    'action': 'add_image', 'data': _reshape(rgb_np),
+                    'name': 'Phase-Colored Flow', 'rgb': True,
+                    'scale': layer.scale, 'translate': layer.translate
                 })
-                    
-            if show_static_streamlines:
+                
+            if show_static_streamlines and 'velocity' in features:
+                from cellstream.phase.analytic import generate_instantaneous_streamlines
                 static_img = generate_instantaneous_streamlines(
-                    v,
-                    num_particles=stream_particles,
-                    steps=50,
-                    device=device,
-                    mask=mask_tensor
+                    torch.from_numpy(features['velocity']).to(device),
+                    num_particles=stream_particles, steps=50, device=device, mask=mask_tensor if 'mask_tensor' in locals() else None
                 )
-                static_np = static_img.cpu().numpy()
-                
-                if is_4d:
-                    if is_z_first:
-                        static_np = np.expand_dims(static_np, axis=0)
-                    else:
-                        static_np = np.expand_dims(static_np, axis=1)
-                        
                 outputs.append({
-                    'action': 'add_image',
-                    'data': static_np,
-                    'name': 'Static Streamlines',
-                    'colormap': 'inferno',
-                    'scale': layer.scale,
-                    'translate': layer.translate
-                })
-            
-            if show_forward_ftle:
-                ftle_img = compute_ftle(
-                    v,
-                    integration_time=ftle_integration_time,
-                    device=device,
-                    mask=mask_tensor,
-                    backward=False
-                )
-                ftle_np = ftle_img.cpu().numpy()
-                
-                if is_4d:
-                    if is_z_first:
-                        ftle_np = np.expand_dims(ftle_np, axis=0)
-                    else:
-                        ftle_np = np.expand_dims(ftle_np, axis=1)
-                        
-                outputs.append({
-                    'action': 'add_image',
-                    'data': ftle_np,
-                    'name': 'Forward FTLE (Repelling)',
-                    'colormap': 'inferno',
-                    'scale': layer.scale,
-                    'translate': layer.translate
+                    'action': 'add_image', 'data': _reshape(static_img.cpu().numpy()),
+                    'name': 'Static Streamlines', 'colormap': 'inferno',
+                    'scale': layer.scale, 'translate': layer.translate
                 })
                 
-            if show_backward_ftle:
-                ftle_img = compute_ftle(
-                    v,
-                    integration_time=ftle_integration_time,
-                    device=device,
-                    mask=mask_tensor,
-                    backward=True
-                )
-                ftle_np = ftle_img.cpu().numpy()
-                
-                if is_4d:
-                    if is_z_first:
-                        ftle_np = np.expand_dims(ftle_np, axis=0)
-                    else:
-                        ftle_np = np.expand_dims(ftle_np, axis=1)
-                        
-                outputs.append({
-                    'action': 'add_image',
-                    'data': ftle_np,
-                    'name': 'Backward FTLE (Attracting)',
-                    'colormap': 'inferno',
-                    'scale': layer.scale,
-                    'translate': layer.translate
-                })
-            
-            # 3. Vectors
-            if show_vectors:
-                vx = v_np[:, 0, ::step, ::step].flatten()
-                vy = v_np[:, 1, ::step, ::step].flatten()
-                    
-                t_flat = t_idx.flatten()
-                y_flat = y_idx.flatten()
-                x_flat = x_idx.flatten()
-                dt = np.zeros_like(vx)
-                
-                if is_4d:
-                    z_flat = np.zeros_like(t_flat)
-                    if is_z_first:
-                        starts = np.stack([z_flat, t_flat, y_flat, x_flat], axis=1)
-                        directions = np.stack([dt, dt, vy, vx], axis=1)
-                    else:
-                        starts = np.stack([t_flat, z_flat, y_flat, x_flat], axis=1)
-                        directions = np.stack([dt, dt, vy, vx], axis=1)
-                else:
-                    starts = np.stack([t_flat, y_flat, x_flat], axis=1)
-                    directions = np.stack([dt, vy, vx], axis=1)
-                    
-                napari_vectors = np.stack([starts, directions], axis=1)
-                angles = np.arctan2(vy, vx)
-                
-                outputs.append({
-                    'action': 'add_vectors', 
-                    'data': napari_vectors, 
-                    'name': 'Velocity Vectors',
-                    'features': {'angle': angles},
-                    'edge_color': 'angle',
-                    'edge_colormap': 'hsv',
-                    'scale': layer.scale,
-                    'translate': layer.translate
-                })
-            
             return outputs
             
         finally:
+            if original_tqdm is not None:
+                phase_utils.tqdm = original_tqdm
             if getattr(phase_features_widget, '_abort_flag', False) and torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
