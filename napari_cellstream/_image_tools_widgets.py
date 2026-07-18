@@ -541,6 +541,7 @@ def phase_velocity_widget(
     stream_particles: int = 20000,
     stream_decay: float = 0.85,
     stream_inject_rate: float = 0.05,
+    use_mask: bool = True,
     stream_mask: Labels = None
 ):
     viewer = current_viewer()
@@ -569,14 +570,16 @@ def phase_velocity_widget(
 
     # Resolve mask on main thread (Qt-safe) before entering worker
     mask_np = None
-    mask_layer = stream_mask
-    if mask_layer is None or mask_layer not in viewer.layers:
-        for l in viewer.layers:
-            if isinstance(l, Labels):
-                mask_layer = l
-                break
-    if mask_layer is not None:
-        mask_np = mask_layer.data.astype('float32')
+    if use_mask:
+        mask_layer = stream_mask
+        if mask_layer is None or mask_layer not in viewer.layers:
+            # Fallback: auto-detect first Labels layer
+            for l in viewer.layers:
+                if isinstance(l, Labels):
+                    mask_layer = l
+                    break
+        if mask_layer is not None:
+            mask_np = mask_layer.data.astype('float32')
 
     phase_velocity_widget._abort_flag = False
     pbar, emitter, MockTqdm = _setup_progress(phase_velocity_widget, "Extracting Flow...")
