@@ -536,6 +536,8 @@ def phase_velocity_widget(
     show_magnitude_image: bool = False,
     show_wavelength_image: bool = False,
     show_streamlines: bool = False,
+    show_static_streamlines: bool = False,
+    show_transport_highways: bool = False,
     stream_particles: int = 20000,
     stream_decay: float = 0.85,
     stream_mask: 'napari.layers.Labels' = None
@@ -569,7 +571,7 @@ def phase_velocity_widget(
 
     @thread_worker
     def _flow_worker():
-        from cellstream.flow.analytic import phase_velocity, generate_streamlines
+        from cellstream.flow.analytic import phase_velocity, generate_streamlines, generate_instantaneous_streamlines
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         try:
@@ -648,16 +650,16 @@ def phase_velocity_widget(
                     'translate': layer.translate
                 })
                     
-            # 2. Streamlines (Comet Tails)
-            if show_streamlines:
-                mask_tensor = None
-                if stream_mask is not None:
-                    mask_data = stream_mask.data
-                    mask_tensor = torch.from_numpy(mask_data.astype('float32')).squeeze()
-                    if is_4d:
-                        if mask_tensor.ndim == 4:
-                            mask_tensor = mask_tensor[0] if is_z_first else mask_tensor[:, 0]
-                
+            # 2. Dynamic Streamlines (Comet Tails)
+            mask_tensor = None
+            if stream_mask is not None:
+                mask_data = stream_mask.data
+                mask_tensor = torch.from_numpy(mask_data.astype('float32')).squeeze()
+                if is_4d:
+                    if mask_tensor.ndim == 4:
+                        mask_tensor = mask_tensor[0] if is_z_first else mask_tensor[:, 0]
+            
+            if show_streamlines or show_transport_highways:
                 stream_img = generate_streamlines(
                     v, 
                     num_particles=stream_particles, 
@@ -665,18 +667,57 @@ def phase_velocity_widget(
                     device=device,
                     mask=mask_tensor
                 )
-                stream_np = stream_img.cpu().numpy()
+                
+                if show_streamlines:
+                    stream_np = stream_img.cpu().numpy()
+                    
+                    if is_4d:
+                        if is_z_first:
+                            stream_np = np.expand_dims(stream_np, axis=0)
+                        else:
+                            stream_np = np.expand_dims(stream_np, axis=1)
+                            
+                    outputs.append({
+                        'action': 'add_image',
+                        'data': stream_np,
+                        'name': 'Dynamic Streamlines',
+                        'colormap': 'inferno',
+                        'scale': layer.scale,
+                        'translate': layer.translate
+                    })
+                    
+                if show_transport_highways:
+                    # Time-average the pathlines to get stable Lagrangian coherent structures
+                    highways = stream_img.mean(dim=0).cpu().numpy()
+                    outputs.append({
+                        'action': 'add_image',
+                        'data': highways,
+                        'name': 'Transport Highways (LCS)',
+                        'colormap': 'magma',
+                        'scale': layer.scale[1:] if is_4d else layer.scale,
+                        'translate': layer.translate[1:] if is_4d else layer.translate
+                    })
+                    
+            if show_static_streamlines:
+                static_img = generate_instantaneous_streamlines(
+                    v,
+                    num_particles=stream_particles,
+                    steps=50,
+                    device=device,
+                    mask=mask_tensor
+                )
+                static_np = static_img.cpu().numpy()
                 
                 if is_4d:
                     if is_z_first:
-                        stream_np = np.expand_dims(stream_np, axis=0)
+                        static_np = np.expand_dims(static_np, axis=0)
                     else:
-                        stream_np = np.expand_dims(stream_np, axis=1)
+                        static_np = np.expand_dims(static_np, axis=1)
                         
                 outputs.append({
                     'action': 'add_image',
-                    'data': stream_np,
-                    'name': 'Streamlines',
+                    'data': static_np,
+                    'name': 'Static Streamlines',
                     'colormap': 'inferno',
                     'scale': layer.scale,
                     'translate': layer.translate
