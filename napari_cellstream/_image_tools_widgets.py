@@ -531,7 +531,7 @@ def temporal_convolution_widget(
 def phase_velocity_widget(
     smooth_sigma: float = 1.0,
     vector_spacing: int = 16,
-    show_vectors: bool = True,
+    show_vectors: bool = False,
     show_angle_image: bool = False,
     show_magnitude_image: bool = False,
     show_wavelength_image: bool = False,
@@ -540,6 +540,7 @@ def phase_velocity_widget(
     show_static_streamlines: bool = False,
     show_transport_highways: bool = False,
     show_ftle: bool = False,
+    backward_ftle: bool = False,
     ftle_integration_time: int = 20,
     stream_particles: int = 20000,
     stream_decay: float = 0.85,
@@ -777,7 +778,8 @@ def phase_velocity_widget(
                     v,
                     integration_time=ftle_integration_time,
                     device=device,
-                    mask=mask_tensor
+                    mask=mask_tensor,
+                    backward=backward_ftle
                 )
                 ftle_np = ftle_img.cpu().numpy()
                 
