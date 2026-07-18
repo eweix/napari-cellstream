@@ -539,8 +539,8 @@ def phase_velocity_widget(
     show_phase_streamlines: bool = False,
     show_static_streamlines: bool = False,
     show_transport_highways: bool = False,
-    show_ftle: bool = False,
-    backward_ftle: bool = False,
+    show_forward_ftle: bool = False,
+    show_backward_ftle: bool = False,
     ftle_integration_time: int = 20,
     stream_particles: int = 20000,
     stream_decay: float = 0.85,
@@ -773,13 +773,13 @@ def phase_velocity_widget(
                     'translate': layer.translate
                 })
             
-            if show_ftle:
+            if show_forward_ftle:
                 ftle_img = compute_ftle(
                     v,
                     integration_time=ftle_integration_time,
                     device=device,
                     mask=mask_tensor,
-                    backward=backward_ftle
+                    backward=False
                 )
                 ftle_np = ftle_img.cpu().numpy()
                 
@@ -792,7 +792,32 @@ def phase_velocity_widget(
                 outputs.append({
                     'action': 'add_image',
                     'data': ftle_np,
-                    'name': 'FTLE',
+                    'name': 'Forward FTLE (Repelling)',
+                    'colormap': 'inferno',
+                    'scale': layer.scale,
+                    'translate': layer.translate
+                })
+                
+            if show_backward_ftle:
+                ftle_img = compute_ftle(
+                    v,
+                    integration_time=ftle_integration_time,
+                    device=device,
+                    mask=mask_tensor,
+                    backward=True
+                )
+                ftle_np = ftle_img.cpu().numpy()
+                
+                if is_4d:
+                    if is_z_first:
+                        ftle_np = np.expand_dims(ftle_np, axis=0)
+                    else:
+                        ftle_np = np.expand_dims(ftle_np, axis=1)
+                        
+                outputs.append({
+                    'action': 'add_image',
+                    'data': ftle_np,
+                    'name': 'Backward FTLE (Attracting)',
                     'colormap': 'inferno',
                     'scale': layer.scale,
                     'translate': layer.translate
