@@ -290,9 +290,9 @@ def phase_defects_widget(
     @thread_worker
     def _phase_worker():
         from cellstream.phase import winding_number
-        import cellstream.phase as phase_module
-        original_tqdm = getattr(phase_module, 'tqdm', None)
-        phase_module.tqdm = MockTqdm
+        import cellstream.phase.utils as phase_utils
+        original_tqdm = getattr(phase_utils, 'tqdm', None)
+        phase_utils.tqdm = MockTqdm
         try:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
             rb = 'auto' if str(row_blocks).lower() == 'auto' else int(row_blocks)
@@ -305,7 +305,7 @@ def phase_defects_widget(
             return wn.cpu().numpy()
         finally:
             if original_tqdm is not None:
-                phase_module.tqdm = original_tqdm
+                phase_utils.tqdm = original_tqdm
             if getattr(phase_defects_widget, '_abort_flag', False) and torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
