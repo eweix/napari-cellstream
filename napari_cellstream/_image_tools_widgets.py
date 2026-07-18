@@ -540,6 +540,7 @@ def phase_velocity_widget(
     show_transport_highways: bool = False,
     stream_particles: int = 20000,
     stream_decay: float = 0.85,
+    stream_inject_rate: float = 0.05,
     stream_mask: Labels = None
 ):
     viewer = current_viewer()
@@ -565,6 +566,17 @@ def phase_velocity_widget(
     
     if img.ndim != 3:
         raise ValueError(f"Expected a 3D phase image (T, Y, X). Got shape {raw_shape}.")
+
+    # Resolve mask on main thread (Qt-safe) before entering worker
+    mask_np = None
+    mask_layer = stream_mask
+    if mask_layer is None or mask_layer not in viewer.layers:
+        for l in viewer.layers:
+            if isinstance(l, Labels):
+                mask_layer = l
+                break
+    if mask_layer is not None:
+        mask_np = mask_layer.data.astype('float32')
 
     phase_velocity_widget._abort_flag = False
     pbar, emitter, MockTqdm = _setup_progress(phase_velocity_widget, "Extracting Flow...")
@@ -652,18 +664,8 @@ def phase_velocity_widget(
                     
             # 2. Dynamic Streamlines (Comet Tails)
             mask_tensor = None
-            mask_layer = stream_mask
-            if mask_layer is None or mask_layer not in viewer.layers:
-                # Fallback: Auto-detect the first available Labels layer
-                from napari.layers import Labels
-                for l in viewer.layers:
-                    if isinstance(l, Labels):
-                        mask_layer = l
-                        break
-                        
-            if mask_layer is not None:
-                mask_data = mask_layer.data
-                mask_tensor = torch.from_numpy(mask_data.astype('float32')).squeeze()
+            if mask_np is not None:
+                mask_tensor = torch.from_numpy(mask_np).squeeze()
                 if is_4d:
                     if mask_tensor.ndim == 4:
                         mask_tensor = mask_tensor[0] if is_z_first else mask_tensor[:, 0]
@@ -674,7 +676,8 @@ def phase_velocity_widget(
                     num_particles=stream_particles, 
                     decay=stream_decay, 
                     device=device,
-                    mask=mask_tensor
+                    mask=mask_tensor,
+                    inject_rate=stream_inject_rate
                 )
                 
                 if show_streamlines:

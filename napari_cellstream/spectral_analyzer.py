@@ -291,17 +291,25 @@ class SpectralWidget(QWidget):
             else:
                 self.handle_image_tool_result(result, tool_name)
                 
-        downsample_gui_widget.called.connect(lambda r: _dispatch_tool_result(r, "Downsampled"))
-        false_color_widget.called.connect(lambda r: _dispatch_tool_result(r, "False Colored"))
-        hilbert_transform_widget.called.connect(lambda r: _dispatch_tool_result(r, "Hilbert Transform"))
-        fir_filter_widget.called.connect(lambda r: _dispatch_tool_result(r, "FIR Filter"))
-        phase_defects_widget.called.connect(lambda r: _dispatch_tool_result(r, "Phase Defects"))
-        image_registration_widget.called.connect(lambda r: _dispatch_tool_result(r, "Registered Image"))
-        pixel_profile_widget.called.connect(lambda r: _dispatch_tool_result(r, "Pixel Profile Spectra"))
-        landscape_generation_widget.called.connect(lambda r: _dispatch_tool_result(r, "Generated Landscape"))
-        hann_filter_widget.called.connect(lambda r: _dispatch_tool_result(r, "Hann Filter"))
-        temporal_convolution_widget.called.connect(lambda r: _dispatch_tool_result(r, "Temporal Convolution"))
-        phase_velocity_widget.called.connect(lambda r: _dispatch_tool_result(r, "Phase Velocity"))
+        _tool_widgets = [
+            (downsample_gui_widget, "Downsampled"),
+            (false_color_widget, "False Colored"),
+            (hilbert_transform_widget, "Hilbert Transform"),
+            (fir_filter_widget, "FIR Filter"),
+            (phase_defects_widget, "Phase Defects"),
+            (image_registration_widget, "Registered Image"),
+            (pixel_profile_widget, "Pixel Profile Spectra"),
+            (landscape_generation_widget, "Generated Landscape"),
+            (hann_filter_widget, "Hann Filter"),
+            (temporal_convolution_widget, "Temporal Convolution"),
+            (phase_velocity_widget, "Phase Velocity"),
+        ]
+        for widget, name in _tool_widgets:
+            try:
+                widget.called.disconnect()
+            except (ValueError, TypeError):
+                pass
+            widget.called.connect(lambda r, n=name: _dispatch_tool_result(r, n))
 
         # Wrap the stack in a QScrollArea so large widgets don't break the layout
         scroll_area = QScrollArea()
