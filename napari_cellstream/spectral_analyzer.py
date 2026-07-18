@@ -517,13 +517,22 @@ class SpectralWidget(QWidget):
             )
 
     ### Image Tools unified handler
-    def handle_image_tool_result(self, result, tool_name):
+    def handle_image_tool_result(self, result, tool_name, parent_item=None):
         import pandas as pd
         
-        # If the result is a list or tuple, process each item recursively
+        # If the result is a list or tuple, process each item recursively under a group
         if isinstance(result, (list, tuple)):
+            item_parent = parent_item if parent_item is not None else self.results_tree.invisibleRootItem()
+            group_item = QTreeWidgetItem([tool_name, f"Group ({len(result)} items)"])
+            item_parent.addChild(group_item)
+            # Add dict to results_dict so group can be saved as zarr group
+            self.results_dict[id(group_item)] = {str(i): res.get('data') for i, res in enumerate(result) if isinstance(res, dict) and 'data' in res}
+            
             for res in result:
-                self.handle_image_tool_result(res, tool_name)
+                self.handle_image_tool_result(res, tool_name, parent_item=group_item)
+                
+            group_item.setExpanded(True)
+            self.results_tree.setCurrentItem(group_item)
             return
             
         if isinstance(result, dict) and result.get('action') == 'add_vectors':
@@ -547,6 +556,11 @@ class SpectralWidget(QWidget):
                 kwargs['translate'] = result['translate']
                 
             self.viewer.add_vectors(napari_vectors, **kwargs)
+            
+            item_parent = parent_item if parent_item is not None else self.results_tree.invisibleRootItem()
+            child_item = QTreeWidgetItem([name, f"Vectors {napari_vectors.shape}"])
+            item_parent.addChild(child_item)
+            self.results_dict[id(child_item)] = napari_vectors
             return
 
         if isinstance(result, dict) and result.get('action') == 'add_image':
@@ -564,6 +578,11 @@ class SpectralWidget(QWidget):
                 kwargs['rgb'] = result['rgb']
                 
             self.viewer.add_image(image_data, **kwargs)
+            
+            item_parent = parent_item if parent_item is not None else self.results_tree.invisibleRootItem()
+            child_item = QTreeWidgetItem([name, f"Array {image_data.shape}"])
+            item_parent.addChild(child_item)
+            self.results_dict[id(child_item)] = image_data
             return
 
         if isinstance(result, dict) and result.get('action') == 'generate_landscape':
