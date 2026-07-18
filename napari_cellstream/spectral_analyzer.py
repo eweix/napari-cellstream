@@ -560,6 +560,8 @@ class SpectralWidget(QWidget):
                 kwargs['scale'] = result['scale']
             if 'translate' in result:
                 kwargs['translate'] = result['translate']
+            if 'rgb' in result:
+                kwargs['rgb'] = result['rgb']
                 
             self.viewer.add_image(image_data, **kwargs)
             return

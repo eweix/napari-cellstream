@@ -536,8 +536,11 @@ def phase_velocity_widget(
     show_magnitude_image: bool = False,
     show_wavelength_image: bool = False,
     show_streamlines: bool = False,
+    show_phase_streamlines: bool = False,
     show_static_streamlines: bool = False,
     show_transport_highways: bool = False,
+    show_ftle: bool = False,
+    ftle_integration_time: int = 20,
     stream_particles: int = 20000,
     stream_decay: float = 0.85,
     stream_inject_rate: float = 0.05,
@@ -586,7 +589,7 @@ def phase_velocity_widget(
 
     @thread_worker
     def _flow_worker():
-        from cellstream.flow.analytic import phase_velocity, generate_streamlines, generate_instantaneous_streamlines
+        from cellstream.flow.analytic import phase_velocity, generate_streamlines, generate_instantaneous_streamlines, generate_phase_colored_streamlines, compute_ftle
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         try:
@@ -713,6 +716,37 @@ def phase_velocity_widget(
                         'translate': layer.translate[-2:]
                     })
                     
+            if show_phase_streamlines:
+                phase_stream_img = generate_phase_colored_streamlines(
+                    v, 
+                    phase=img,
+                    num_particles=stream_particles, 
+                    decay=stream_decay, 
+                    device=device,
+                    mask=mask_tensor,
+                    inject_rate=stream_inject_rate
+                )
+                phase_stream_np = phase_stream_img.cpu().numpy()
+                
+                # Input shape is (T, 3, Y, X)
+                # Output shape for napari should be (T, Y, X, 3) for RGB display
+                rgb_np = np.moveaxis(phase_stream_np, 1, -1)
+                
+                if is_4d:
+                    if is_z_first:
+                        rgb_np = np.expand_dims(rgb_np, axis=0)
+                    else:
+                        rgb_np = np.expand_dims(rgb_np, axis=1)
+                        
+                outputs.append({
+                    'action': 'add_image',
+                    'data': rgb_np,
+                    'name': 'Phase-Colored Flow',
+                    'rgb': True,
+                    'scale': layer.scale,
+                    'translate': layer.translate
+                })
+                    
             if show_static_streamlines:
                 static_img = generate_instantaneous_streamlines(
                     v,
@@ -733,6 +767,30 @@ def phase_velocity_widget(
                     'action': 'add_image',
                     'data': static_np,
                     'name': 'Static Streamlines',
+                    'colormap': 'inferno',
+                    'scale': layer.scale,
+                    'translate': layer.translate
+                })
+            
+            if show_ftle:
+                ftle_img = compute_ftle(
+                    v,
+                    integration_time=ftle_integration_time,
+                    device=device,
+                    mask=mask_tensor
+                )
+                ftle_np = ftle_img.cpu().numpy()
+                
+                if is_4d:
+                    if is_z_first:
+                        ftle_np = np.expand_dims(ftle_np, axis=0)
+                    else:
+                        ftle_np = np.expand_dims(ftle_np, axis=1)
+                        
+                outputs.append({
+                    'action': 'add_image',
+                    'data': ftle_np,
+                    'name': 'FTLE',
                     'colormap': 'inferno',
                     'scale': layer.scale,
                     'translate': layer.translate
