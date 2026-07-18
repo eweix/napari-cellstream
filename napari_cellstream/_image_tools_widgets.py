@@ -541,6 +541,7 @@ def phase_velocity_widget(
     show_transport_highways: bool = False,
     show_forward_ftle: bool = False,
     show_backward_ftle: bool = False,
+    save_to_zarr: bool = False,
     ftle_integration_time: int = 20,
     stream_particles: int = 20000,
     stream_decay: float = 0.85,
@@ -584,6 +585,12 @@ def phase_velocity_widget(
                     break
         if mask_layer is not None:
             mask_np = mask_layer.data.astype('float32')
+
+    # Resolve zarr metadata
+    zarr_meta = {
+        'zarr_path': layer.metadata.get('zarr_path'),
+        'zarr_key': layer.metadata.get('zarr_key')
+    }
 
     phase_velocity_widget._abort_flag = False
     pbar, emitter, MockTqdm = _setup_progress(phase_velocity_widget, "Extracting Flow...")
@@ -858,6 +865,22 @@ def phase_velocity_widget(
                     'scale': layer.scale,
                     'translate': layer.translate
                 })
+            
+            # 4. Save to Zarr
+            if save_to_zarr and zarr_meta['zarr_path'] and zarr_meta['zarr_key']:
+                import zarr
+                store = zarr.open(zarr_meta['zarr_path'], mode='a')
+                zk = zarr_meta['zarr_key']
+                parent_key = zk.rsplit('/', 1)[0] if '/' in zk else ''
+                parent_group = store.require_group(parent_key) if parent_key else store
+                flow_group = parent_group.require_group('flow')
+                
+                flow_group.create_dataset('velocity', data=v_np, overwrite=True, chunks=(1, 2, v_np.shape[2], v_np.shape[3]))
+                flow_group.create_dataset('speed', data=speed_np, overwrite=True, chunks=(1, speed_np.shape[1], speed_np.shape[2]))
+                if show_forward_ftle:
+                    flow_group.create_dataset('ftle_forward', data=ftle_fwd_np, overwrite=True, chunks=(1, ftle_fwd_np.shape[1], ftle_fwd_np.shape[2]))
+                if show_backward_ftle:
+                    flow_group.create_dataset('ftle_backward', data=ftle_bwd_np, overwrite=True, chunks=(1, ftle_bwd_np.shape[1], ftle_bwd_np.shape[2]))
             
             return outputs
             
