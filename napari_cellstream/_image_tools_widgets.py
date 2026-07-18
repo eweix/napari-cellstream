@@ -534,6 +534,7 @@ def phase_velocity_widget(
     show_vectors: bool = True,
     show_angle_image: bool = False,
     show_magnitude_image: bool = False,
+    show_wavelength_image: bool = False,
     show_streamlines: bool = False,
     stream_particles: int = 20000,
     stream_decay: float = 0.85,
@@ -572,7 +573,7 @@ def phase_velocity_widget(
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         try:
-            v, speed = phase_velocity(img, smooth_sigma=smooth_sigma, device=device)
+            v, speed, wavenumber = phase_velocity(img, smooth_sigma=smooth_sigma, device=device)
             T_out, _, Y_out, X_out = v.shape
             # Subsample visual arrows slightly
             step = max(1, vector_spacing)
@@ -624,6 +625,28 @@ def phase_velocity_widget(
                         'scale': layer.scale,
                         'translate': layer.translate
                     })
+                    
+            if show_wavelength_image:
+                wave_np = wavenumber.detach().cpu().numpy()
+                wavelength = 2 * np.pi / (wave_np + 1e-8)
+                
+                # Cap the maximum wavelength for display (100 pixels is visually huge)
+                wavelength = np.clip(wavelength, 0, 100)
+                
+                if is_4d:
+                    if is_z_first:
+                        wavelength = np.expand_dims(wavelength, axis=0)
+                    else:
+                        wavelength = np.expand_dims(wavelength, axis=1)
+                        
+                outputs.append({
+                    'action': 'add_image',
+                    'data': wavelength,
+                    'name': 'Spatial Wavelength',
+                    'colormap': 'turbo',
+                    'scale': layer.scale,
+                    'translate': layer.translate
+                })
                     
             # 2. Streamlines (Comet Tails)
             if show_streamlines:
