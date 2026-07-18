@@ -590,7 +590,7 @@ def phase_velocity_widget(
 
     @thread_worker
     def _flow_worker():
-        from cellstream.flow.analytic import phase_velocity, generate_streamlines, generate_instantaneous_streamlines, generate_phase_colored_streamlines, compute_ftle
+        from cellstream.phase.analytic import phase_velocity, generate_streamlines, generate_instantaneous_streamlines, generate_phase_colored_streamlines, compute_ftle
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         try:
