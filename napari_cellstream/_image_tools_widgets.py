@@ -536,7 +536,8 @@ def phase_velocity_widget(
     show_magnitude_image: bool = False,
     show_streamlines: bool = False,
     stream_particles: int = 20000,
-    stream_decay: float = 0.85
+    stream_decay: float = 0.85,
+    stream_mask: 'napari.layers.Labels' = None
 ):
     viewer = current_viewer()
     if viewer is None: raise RuntimeError("No active napari viewer found")
@@ -626,11 +627,20 @@ def phase_velocity_widget(
                     
             # 2. Streamlines (Comet Tails)
             if show_streamlines:
+                mask_tensor = None
+                if stream_mask is not None:
+                    mask_data = stream_mask.data
+                    mask_tensor = torch.from_numpy(mask_data.astype('float32')).squeeze()
+                    if is_4d:
+                        if mask_tensor.ndim == 4:
+                            mask_tensor = mask_tensor[0] if is_z_first else mask_tensor[:, 0]
+                
                 stream_img = generate_streamlines(
                     v, 
                     num_particles=stream_particles, 
                     decay=stream_decay, 
-                    device=device
+                    device=device,
+                    mask=mask_tensor
                 )
                 stream_np = stream_img.cpu().numpy()
                 
