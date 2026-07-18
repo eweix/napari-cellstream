@@ -694,8 +694,8 @@ def phase_velocity_widget(
                         'data': highways,
                         'name': 'Transport Highways (LCS)',
                         'colormap': 'magma',
-                        'scale': layer.scale[1:] if is_4d else layer.scale,
-                        'translate': layer.translate[1:] if is_4d else layer.translate
+                        'scale': layer.scale[-2:],
+                        'translate': layer.translate[-2:]
                     })
                     
             if show_static_streamlines:
