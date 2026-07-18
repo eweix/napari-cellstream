@@ -652,8 +652,17 @@ def phase_velocity_widget(
                     
             # 2. Dynamic Streamlines (Comet Tails)
             mask_tensor = None
-            if stream_mask is not None:
-                mask_data = stream_mask.data
+            mask_layer = stream_mask
+            if mask_layer is None or mask_layer not in viewer.layers:
+                # Fallback: Auto-detect the first available Labels layer
+                from napari.layers import Labels
+                for l in viewer.layers:
+                    if isinstance(l, Labels):
+                        mask_layer = l
+                        break
+                        
+            if mask_layer is not None:
+                mask_data = mask_layer.data
                 mask_tensor = torch.from_numpy(mask_data.astype('float32')).squeeze()
                 if is_4d:
                     if mask_tensor.ndim == 4:
