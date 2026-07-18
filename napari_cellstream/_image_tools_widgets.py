@@ -272,47 +272,6 @@ def _on_filter_type_changed(value: str):
 
 fir_filter_widget.cutoff_freq_high.enabled = False
 
-# 5. Phase Defects Tool
-@magicgui(call_button="Compute Phase Defects")
-def phase_defects_widget(
-    window_size: int = 5,
-    row_blocks: str = 'auto'
-):
-    viewer = current_viewer()
-    if viewer is None: raise RuntimeError("No active napari viewer found")
-    layer = viewer.layers.selection.active
-    if layer is None or not isinstance(layer, Image): raise RuntimeError("No active image layer selected")
-
-    img = torch.from_numpy(layer.data.astype('float32'))
-    phase_defects_widget._abort_flag = False
-    pbar, emitter, MockTqdm = _setup_progress(phase_defects_widget, "Computing Winding Number...")
-
-    @thread_worker
-    def _phase_worker():
-        from cellstream.phase import winding_number
-        import cellstream.phase.utils as phase_utils
-        original_tqdm = getattr(phase_utils, 'tqdm', None)
-        phase_utils.tqdm = MockTqdm
-        try:
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            rb = 'auto' if str(row_blocks).lower() == 'auto' else int(row_blocks)
-            wn = winding_number(
-                phase_img=img,
-                n=window_size,
-                row_blocks=rb,
-                device=device
-            )
-            return wn.cpu().numpy()
-        finally:
-            if original_tqdm is not None:
-                phase_utils.tqdm = original_tqdm
-            if getattr(phase_defects_widget, '_abort_flag', False) and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-    worker = _phase_worker()
-    _add_cancel_button(phase_defects_widget, worker, pbar)
-    return worker
-
 # 6. Image Registration Tool
 @magicgui(call_button="Register Timeseries")
 def image_registration_widget(
@@ -524,17 +483,20 @@ def temporal_convolution_widget(
     _add_cancel_button(temporal_convolution_widget, worker, pbar)
     return worker
 
-# 11. Phase Velocity Tool
+# 11. Phase Features Tool
 @magicgui(
-    call_button="Extract Flow Field"
+    call_button="Extract Phase Features",
+    layout="vertical"
 )
-def phase_velocity_widget(
+def phase_features_widget(
     smooth_sigma: float = 1.0,
-    vector_spacing: int = 16,
+    vector_spacing: int = 5,
     show_vectors: bool = False,
     show_angle_image: bool = False,
     show_magnitude_image: bool = False,
     show_wavelength_image: bool = False,
+    show_defects: bool = False,
+    defect_window_size: int = 5,
     show_streamlines: bool = False,
     show_phase_streamlines: bool = False,
     show_static_streamlines: bool = False,
@@ -585,8 +547,8 @@ def phase_velocity_widget(
         if mask_layer is not None:
             mask_np = mask_layer.data.astype('float32')
 
-    phase_velocity_widget._abort_flag = False
-    pbar, emitter, MockTqdm = _setup_progress(phase_velocity_widget, "Extracting Flow...")
+    phase_features_widget._abort_flag = False
+    pbar, emitter, MockTqdm = _setup_progress(phase_features_widget, "Extracting Phase Features...")
 
     @thread_worker
     def _flow_worker():
@@ -609,7 +571,28 @@ def phase_velocity_widget(
             
             outputs = []
             
-            # 1. Images (Angle & Magnitude)
+            # 1. Defects (Winding Number Field)
+            if show_defects:
+                from cellstream.phase.utils import winding_number
+                wn = winding_number(img, n=defect_window_size, device=device, row_blocks='auto')
+                wn_np = wn.cpu().numpy()
+                
+                if is_4d:
+                    if is_z_first:
+                        wn_np = np.expand_dims(wn_np, axis=0)
+                    else:
+                        wn_np = np.expand_dims(wn_np, axis=1)
+                        
+                outputs.append({
+                    'action': 'add_image',
+                    'data': wn_np,
+                    'name': 'Winding Number (Defects)',
+                    'colormap': 'bop blue', # Use divergent colormap if appropriate, bop blue works
+                    'scale': layer.scale,
+                    'translate': layer.translate
+                })
+            
+            # 2. Images (Angle & Magnitude)
             if show_angle_image or show_magnitude_image:
                 # v_np is (T, 2, Y, X)
                 vy_full = v_np[:, 1, :, :]
@@ -862,9 +845,9 @@ def phase_velocity_widget(
             return outputs
             
         finally:
-            if getattr(phase_velocity_widget, '_abort_flag', False) and torch.cuda.is_available():
+            if getattr(phase_features_widget, '_abort_flag', False) and torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
     worker = _flow_worker()
-    _add_cancel_button(phase_velocity_widget, worker, pbar)
+    _add_cancel_button(phase_features_widget, worker, pbar)
     return worker

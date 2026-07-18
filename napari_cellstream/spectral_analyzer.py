@@ -33,13 +33,12 @@ from ._image_tools_widgets import (
     false_color_widget,
     hilbert_transform_widget,
     fir_filter_widget,
-    phase_defects_widget,
     image_registration_widget,
     pixel_profile_widget,
     landscape_generation_widget,
     hann_filter_widget,
     temporal_convolution_widget,
-    phase_velocity_widget
+    phase_features_widget
 )
 
 from qtpy.QtWidgets import QStackedWidget
@@ -249,13 +248,12 @@ class SpectralWidget(QWidget):
             "False-Color Spectra", 
             "Hilbert Transform",
             "FIR Filter",
-            "Phase Defects",
             "Image Registration",
             "Pixel Profile Spectra",
             "Generate 2D Landscape",
             "Hann Filter",
             "Temporal Convolution",
-            "Phase Velocity"
+            "Phase Features"
         ])
         
         self.image_tools_stack = QStackedWidget()
@@ -265,13 +263,12 @@ class SpectralWidget(QWidget):
             false_color_widget.native,
             hilbert_transform_widget.native,
             fir_filter_widget.native,
-            phase_defects_widget.native,
             image_registration_widget.native,
             pixel_profile_widget.native,
             landscape_generation_widget.native,
             hann_filter_widget.native,
             temporal_convolution_widget.native,
-            phase_velocity_widget.native
+            phase_features_widget.native
         ]:
             container = QWidget()
             lay = QVBoxLayout(container)
@@ -296,13 +293,12 @@ class SpectralWidget(QWidget):
             (false_color_widget, "False Colored"),
             (hilbert_transform_widget, "Hilbert Transform"),
             (fir_filter_widget, "FIR Filter"),
-            (phase_defects_widget, "Phase Defects"),
             (image_registration_widget, "Registered Image"),
             (pixel_profile_widget, "Pixel Profile Spectra"),
             (landscape_generation_widget, "Generated Landscape"),
             (hann_filter_widget, "Hann Filter"),
             (temporal_convolution_widget, "Temporal Convolution"),
-            (phase_velocity_widget, "Phase Velocity"),
+            (phase_features_widget, "Phase Features"),
         ]
         for widget, name in _tool_widgets:
             try:
