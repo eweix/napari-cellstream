@@ -559,6 +559,14 @@ def phase_features_widget(
         
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
+        # Convert mask from numpy to tensor (mask_np was resolved on main thread)
+        mask_tensor = None
+        if mask_np is not None:
+            mask_tensor = torch.from_numpy(mask_np).squeeze()
+            if is_4d:
+                if mask_tensor.ndim == 4:
+                    mask_tensor = mask_tensor[0] if is_z_first else mask_tensor[:, 0]
+        
         try:
             # Build the list of features to process based on UI checkboxes
             features_to_process = []
@@ -569,6 +577,8 @@ def phase_features_widget(
             # These require basic velocity
             if show_angle_image or show_magnitude_image or show_vectors or show_wavelength_image:
                 features_to_process.append('velocity')
+            if show_wavelength_image:
+                features_to_process.append('wavenumber')
                 
             if show_forward_ftle:
                 features_to_process.append('ftle_forward')
@@ -634,16 +644,15 @@ def phase_features_widget(
                         'scale': layer.scale, 'translate': layer.translate
                     })
                     
-                if show_wavelength_image:
-                    # Recompute wavenumber from velocity speed
-                    speed = np.sqrt(vx_full**2 + vy_full**2)
-                    wavelength = 2 * np.pi / (speed + 1e-8)
-                    wavelength = np.clip(wavelength, 0, 100)
-                    outputs.append({
-                        'action': 'add_image', 'data': _reshape(wavelength),
-                        'name': 'Spatial Wavelength', 'colormap': 'turbo',
-                        'scale': layer.scale, 'translate': layer.translate
-                    })
+            if show_wavelength_image and 'wavenumber' in features:
+                wavenumber = features['wavenumber']
+                wavelength = 2 * np.pi / (wavenumber + 1e-8)
+                wavelength = np.clip(wavelength, 0, 100)
+                outputs.append({
+                    'action': 'add_image', 'data': _reshape(wavelength),
+                    'name': 'Spatial Wavelength', 'colormap': 'turbo',
+                    'scale': layer.scale, 'translate': layer.translate
+                })
                     
                 if show_vectors:
                     T_out, _, Y_out, X_out = v_np.shape
