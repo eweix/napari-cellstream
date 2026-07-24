@@ -654,7 +654,9 @@ def phase_features_widget(
                     'scale': layer.scale, 'translate': layer.translate
                 })
                     
+            if 'velocity' in features:
                 if show_vectors:
+                    v_np = features['velocity']
                     T_out, _, Y_out, X_out = v_np.shape
                     step = max(1, vector_spacing)
                     t_idx, y_idx, x_idx = np.meshgrid(
