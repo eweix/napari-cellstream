@@ -28,6 +28,11 @@ dependencies = [
     "tifffile",
     "qtpy",
     "npe2",
+    "cellstream",
+    "pandas",
+    "zarr",
+    "superqt",
+    "scipy",
 ]
 
 [project.entry-points."napari.manifest"]

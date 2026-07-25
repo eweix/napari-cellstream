@@ -412,8 +412,6 @@ def hann_filter_widget(
     @thread_worker
     def _hann_worker():
         import cellstream.utils as cs_utils
-        import importlib
-        importlib.reload(cs_utils)
         from cellstream.utils import hann_image_series
         
         original_tqdm = getattr(cs_utils, 'tqdm', None)
@@ -450,8 +448,6 @@ def temporal_convolution_widget(
     @thread_worker
     def _conv_worker():
         import cellstream.utils as cs_utils
-        import importlib
-        importlib.reload(cs_utils)
         from cellstream.utils import convolve_along_timeseries
         
         original_tqdm = getattr(cs_utils, 'tqdm', None)
