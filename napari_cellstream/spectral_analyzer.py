@@ -808,7 +808,7 @@ class SpectralWidget(QWidget):
                 spinbox = QDoubleSpinBox()
                 spinbox.setRange(min_val, max_val)
                 spinbox.setSingleStep(step)
-                spinbox.setDecimals(2)
+                spinbox.setDecimals(6)
             
             spinbox.setValue(default)
             spinbox.valueChanged.connect(self.param_changed)

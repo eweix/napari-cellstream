@@ -16,6 +16,7 @@ from napari.qt.threading import thread_worker
     wavelet_choice={"visible": False},
     wavelet_parameters={"visible": False},
     nv={"visible": False},
+    downsample_by={"step": 0.000001},
 )
 def generate_cwt_features_widget(
     min_scale: int = 80,

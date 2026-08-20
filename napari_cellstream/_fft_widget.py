@@ -12,7 +12,8 @@ from napari.qt.threading import thread_worker
 
 @magicgui(
     call_button="Generate FFT features",
-    blocks={"tooltip": "Enter 'auto' or a number of blocks"}
+    blocks={"tooltip": "Enter 'auto' or a number of blocks"},
+    downsample_by={"step": 0.000001}
    )
 def fft_gui_widget(
     normalize_histogram=True,

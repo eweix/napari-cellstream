@@ -93,7 +93,7 @@ def _add_cancel_button(widget_obj, worker, pbar):
 
 
 # 1. Downsample Tool
-@magicgui(call_button="Downsample active image")
+@magicgui(call_button="Downsample active image", downsample_by={"step": 0.000001})
 def downsample_gui_widget(
     downsample_by: float = 1,
     is_mask: bool = False,
@@ -221,8 +221,8 @@ def hilbert_transform_widget(
 @magicgui(
     call_button="Apply FIR Filter",
     filter_type={"choices": ["low_pass", "high_pass", "bandpass"]},
-    cutoff_freq_low={"label": "Low Cutoff (Frac. Nyquist)"},
-    cutoff_freq_high={"label": "High Cutoff (Frac. Nyquist)"}
+    cutoff_freq_low={"label": "Low Cutoff (Frac. Nyquist)", "step": 0.000001},
+    cutoff_freq_high={"label": "High Cutoff (Frac. Nyquist)", "step": 0.000001}
 )
 def fir_filter_widget(
     filter_type: str = "low_pass",
@@ -273,7 +273,7 @@ def _on_filter_type_changed(value: str):
 fir_filter_widget.cutoff_freq_high.enabled = False
 
 # 6. Image Registration Tool
-@magicgui(call_button="Register Timeseries")
+@magicgui(call_button="Register Timeseries", downsample_factor={"step": 0.000001})
 def image_registration_widget(
     reg_channel: int = 0,
     downsample_factor: float = 0.25,
@@ -314,7 +314,7 @@ def image_registration_widget(
     return worker
 
 # 7. Pixel Spectrum Profiling Tool
-@magicgui(call_button="Profile Pixel Spectra")
+@magicgui(call_button="Profile Pixel Spectra", c_val={"step": 0.000001})
 def pixel_profile_widget(
     min_bin: int = 4,
     max_bin: int = 40,
@@ -372,7 +372,9 @@ _pixel_choices = ['E_amp', 'D_amp', 'E_norm_amp', 'D_norm_amp', 'E_z', 'D_z', 'E
     x_col={"choices": _pixel_choices},
     y_col={"choices": _pixel_choices},
     z_col={"choices": _pixel_choices},
-    landscape_cmap={"choices": ['viridis', 'turbo', 'plasma', 'inferno', 'magma', 'cividis', 'coolwarm']}
+    landscape_cmap={"choices": ['viridis', 'turbo', 'plasma', 'inferno', 'magma', 'cividis', 'coolwarm']},
+    percentile_min={"step": 0.000001},
+    percentile_max={"step": 0.000001}
 )
 def landscape_generation_widget(
     x_col: str = 'E',
@@ -482,7 +484,10 @@ def temporal_convolution_widget(
 # 11. Phase Features Tool
 @magicgui(
     call_button="Extract Phase Features",
-    layout="vertical"
+    layout="vertical",
+    smooth_sigma={"step": 0.000001},
+    stream_decay={"step": 0.000001},
+    stream_inject_rate={"step": 0.000001}
 )
 def phase_features_widget(
     smooth_sigma: float = 1.0,
