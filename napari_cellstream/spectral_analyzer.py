@@ -1104,8 +1104,8 @@ class SpectralWidget(QWidget):
             ax.plot(x_vals, fft[:self.fmax],color='#FF91A4')
             ax.set_title("Frequency Domain")
             
-            cursor = ax.axvline(cursor_x, color='red', linestyle='dotted')
-            self.time_cursor_lines.append(cursor)
+            # cursor = ax.axvline(cursor_x, color='red', linestyle='dotted')
+            # self.time_cursor_lines.append(cursor)
             
 
             # CWT plot
